@@ -1,0 +1,131 @@
+# Claude
+.claude/
+.claudeignore
+
+# Project-specific exclusions
+repomix-output.xml
+nul
+*.zip
+*.spec
+installer.iss
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# C extensions
+*.c
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+*.pylog
+
+# Environment variables
+.env
+.env.local
+.env.backup
+
+# Coverage reports
+.coverage
+htmlcov/
+.tox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# MyPy
+.mypy_cache/
+
+# Pytest
+.pytest_cache/
+
+# PyCharm
+# Please note that this is not 100% correct as PyCharm creates many project specific files
+# and this should ideally be in .git/info/exclude or your global gitignore instead.
+.idea/
+
+# Pandas/numpy sometimes creates these
+*.npy
+
+# PySide6 UI files
+*.ui
+
+# Compiled numba functions
+__pycache__/
+numba/
+
+# User-specific settings (if any)
+settings.json
+user_settings.json
+
+# Backup files
+*~
+*.bak
+*.tmp
+
+# Project-specific output files
+test_startup.py
+run.bat
+
+# Build outputs
+build/
+dist/
+*.exe
+*.msi
+*.zip
+
+# Audio cache and generated data
+audio_cache/
+*.wav_cache
+tile_cache/
+
+# User data and exports
+exports/
+output/
+screenshots/
+
+# Testing and debugging
+test_*.py
+debug_*.py
+profile_*.txt
+nul

@@ -1,0 +1,161 @@
+/* ========================================================================
+   Adobe Inspired Dark Theme for LumaFlow
+   ======================================================================== */
+
+/* --- Main Window & General Widgets --- */
+QMainWindow, QDialog {
+    background-color: #323232;
+    color: #DCDCDC;
+}
+
+QWidget {
+    color: #DCDCDC;
+}
+
+/* --- Menu Bar & Menus --- */
+QMenuBar {
+    background-color: #3C3C3C;
+    border-bottom: 1px solid #2A2A2A;
+}
+
+QMenuBar::item {
+    padding: 4px 8px;
+    background-color: transparent;
+}
+
+QMenuBar::item:selected {
+    background-color: #555555;
+}
+
+QMenu {
+    background-color: #3C3C3C;
+    border: 1px solid #4F4F4F;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 4px 24px;
+}
+
+QMenu::item:selected {
+    background-color: #0078D4; /* Adobe Blue Accent */
+    color: #FFFFFF;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #4F4F4F;
+    margin: 4px 0px;
+}
+
+/* --- ToolBar --- */
+QToolBar {
+    background-color: #3C3C3C;
+    border-bottom: 1px solid #2A2A2A;
+    padding: 2px;
+    spacing: 4px;
+}
+
+QToolBar::separator {
+    background-color: #4F4F4F;
+    width: 1px;
+    margin: 4px 6px;
+}
+
+QToolButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    padding: 4px;
+    border-radius: 3px;
+}
+
+QToolButton:hover {
+    background-color: #555555;
+    border: 1px solid #666666;
+}
+
+QToolButton:pressed {
+    background-color: #4A4A4A;
+}
+
+QToolButton:checked {
+    background-color: #0078D4;
+    border: 1px solid #005A9E;
+}
+
+
+/* --- Buttons --- */
+QPushButton {
+    background-color: #555555;
+    border: 1px solid #666666;
+    padding: 5px 12px;
+    border-radius: 3px;
+    min-width: 60px;
+}
+
+QPushButton:hover {
+    background-color: #666666;
+}
+
+QPushButton:pressed {
+    background-color: #444444;
+}
+
+QPushButton:disabled {
+    background-color: #404040;
+    color: #888888;
+    border-color: #555555;
+}
+
+
+/* --- Input Fields --- */
+QLineEdit, QSpinBox, QDoubleSpinBox {
+    background-color: #2A2A2A;
+    border: 1px solid #4F4F4F;
+    padding: 4px;
+    border-radius: 3px;
+}
+
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+    border: 1px solid #0078D4; /* Adobe Blue Accent */
+}
+
+
+/* --- Table View --- */
+QTableView {
+    background-color: #2A2A2A;
+    border: 1px solid #4F4F4F;
+    gridline-color: #404040;
+}
+
+QTableView::item:selected {
+    background-color: #0078D4;
+    color: #FFFFFF;
+}
+
+QHeaderView::section {
+    background-color: #3C3C3C;
+    color: #DCDCDC;
+    padding: 6px;
+    border: 1px solid #4F4F4F;
+    border-bottom: 2px solid #2A2A2A;
+}
+
+
+/* --- Splitter --- */
+QSplitter::handle {
+    background-color: #3C3C3C;
+    border-left: 1px solid #2A2A2A;
+    border-right: 1px solid #2A2A2A;
+}
+
+QSplitter::handle:hover {
+    background-color: #555555;
+}
+
+
+/* --- Status Bar --- */
+QStatusBar {
+    background-color: #3C3C3C;
+    border-top: 1px solid #4F4F4F;
+}
