@@ -54,7 +54,7 @@ class SerialDevicePanel(QGroupBox):
         offset_row.addWidget(QLabel("Offset (ms):"))
         self.offset_spin = QSpinBox()
         self.offset_spin.setRange(-1000, 1000)
-        self.offset_spin.setValue(170)  # Default offset for serial devices
+        self.offset_spin.setValue(200)  # Default offset for serial devices
         self.offset_spin.setMinimumWidth(80)
         offset_row.addWidget(self.offset_spin)
         self.reset_offset_btn = QPushButton("Reset")

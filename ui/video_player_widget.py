@@ -35,6 +35,10 @@ class VideoPlayerWidget(QWidget):
         self.last_vlc_time_ms = -1  # last read VLC time
         self.vlc_read_counter = 0  # counter for VLC sync (read every 10 ticks = 100ms)
 
+        self.last_reported_vlc_time = -1
+        self.smooth_drift = 0  # 平滑后的偏移量
+        self.last_tick_perf = time.perf_counter()
+
         if not vlc_available:
             self._create_fallback_ui()
             return
@@ -267,31 +271,85 @@ class VideoPlayerWidget(QWidget):
         if vlc_available:
             self.media_player.audio_set_volume(volume)
 
+    # @Slot()
+    # def _on_master_tick(self):
+    #     """Master clock tick at 100Hz for smooth playback head updates."""
+    #     if not self._is_playing or not self._is_media_loaded:
+    #         return
+
+    #     # Use high-precision local clock to calculate elapsed time
+    #     elapsed_sec = time.perf_counter() - self.playback_start_time
+    #     self.current_time_ms = self.playback_start_offset_ms + int(elapsed_sec * 1000)
+
+    #     # Every 1000 ticks (10000ms = 10s), read VLC time for synchronization
+    #     self.vlc_read_counter += 1
+    #     if self.vlc_read_counter >= 20:
+    #         self.vlc_read_counter = 0
+            
+    #         if self.media_player.get_media():
+    #             vlc_time = self.media_player.get_time()
+    #             if vlc_time >= 0:
+    #                 # Only recalibrate if drift exceeds 600ms threshold
+    #                 drift = abs(vlc_time - self.current_time_ms)
+    #                 offset_drift = vlc_time - self.current_time_ms
+    #                 print(f"[DEBUG VLC] Master clock try resync with VLC time: {vlc_time}ms (offset_drift: {offset_drift}ms)")
+    #                 if drift > 600:
+    #                     self.playback_start_time = time.perf_counter()
+    #                     self.playback_start_offset_ms = vlc_time
+    #                     self.current_time_ms = vlc_time
+    #                     self.last_vlc_time_ms = vlc_time
+
     @Slot()
     def _on_master_tick(self):
-        """Master clock tick at 100Hz for smooth playback head updates."""
+        """主时钟滴答，100Hz刷新"""
         if not self._is_playing or not self._is_media_loaded:
             return
+        update_flag = False
+        # 1. 计算自上一帧以来的高精度物理增量
+        now = time.perf_counter()
+        dt = (now - self.last_tick_perf) * 1000 # 毫秒
+        self.last_tick_perf = now
 
-        # Use high-precision local clock to calculate elapsed time
-        elapsed_sec = time.perf_counter() - self.playback_start_time
-        self.current_time_ms = self.playback_start_offset_ms + int(elapsed_sec * 1000)
+        # 2. 获取 VLC 的原始时间戳
+        vlc_time = self.media_player.get_time()
 
-        # Every 500 ticks (5000ms = 5s), read VLC time for synchronization
-        self.vlc_read_counter += 1
-        if self.vlc_read_counter >= 500:
-            self.vlc_read_counter = 0
+        # 3. 只有当 VLC 时间真正更新时，才更新漂移量计算
+        # 避免在 VLC 时间戳“原地踏步”时产生错误的漂移估算
+        if vlc_time != self.last_reported_vlc_time and vlc_time != -1:
+            # 计算当前的物理逻辑时钟与 VLC 真实进度的差距
+            # 这里的 current_time_ms 是上一帧预测的时间
+            raw_drift = vlc_time - self.current_time_ms
+            
+            # 记录这次有效的 VLC 更新
+            self.last_reported_vlc_time = vlc_time
+            
+            # 将瞬时漂移计入平滑追踪（平滑因子 0.1 表示用 10 帧左右完成追赶）
+            # 这能过滤掉 VLC 时间戳更新瞬间的抖动
+            self.smooth_drift = raw_drift * 0.1
+            update_flag = True
+            
+        else:
+            # 在 VLC 时间戳没变期间，平滑漂移量逐渐衰减
+            # 这样即使没有 VLC 更新，时钟也在平滑地向目标靠拢
+            self.smooth_drift *= 0.9
 
-            if self.media_player.get_media():
-                vlc_time = self.media_player.get_time()
-                if vlc_time >= 0:
-                    # Only recalibrate if drift exceeds 50ms threshold
-                    drift = abs(vlc_time - self.current_time_ms)
-                    if drift > 50:
-                        self.playback_start_time = time.perf_counter()
-                        self.playback_start_offset_ms = vlc_time
-                        self.current_time_ms = vlc_time
-                        self.last_vlc_time_ms = vlc_time
+        # 4. 更新当前播放位置
+        # 当前位置 = 上一位置 + 物理增量 + 追踪补正
+        # 补正量限制在 dt 的 20%，防止追赶太快导致视觉抖动
+        correction = max(-dt * 0.2, min(dt * 0.2, self.smooth_drift))
+        self.current_time_ms += (dt + correction)
+
+        # 5. 更新 UI 和输出
+        self.position_slider.blockSignals(True)
+        self.position_slider.setValue(int(self.current_time_ms))
+        self.position_slider.blockSignals(False)
+        self.position_changed_during_playback.emit(int(self.current_time_ms))
+
+        if update_flag:
+            print(f"[DEBUG VLC] Master clock updated: current_time_ms={self.current_time_ms:.2f}ms, "
+                  f"vlc_time={vlc_time}ms, smooth_drift={self.smooth_drift:.2f}ms, correction={correction:.2f}ms")
+        
+
 
         # Check if end of media is reached
         duration_ms = self.media_player.get_length()
@@ -301,15 +359,6 @@ class VideoPlayerWidget(QWidget):
             self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
             self.playback_stopped.emit()
             return
-
-        # Update position slider with blocked signals to prevent loops
-        self.position_slider.blockSignals(True)
-        self.position_slider.setValue(int(self.current_time_ms))
-        self.position_slider.blockSignals(False)
-
-        # Emit signal for device output synchronization
-        self.position_changed_during_playback.emit(int(self.current_time_ms))
-
 
 
     # --- VLC Event Handlers ---

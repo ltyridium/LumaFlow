@@ -91,7 +91,9 @@ def create_readme():
 版本: {APP_METADATA['version']}
 作者: {APP_METADATA['author']}
 """
-    with open('dist/LumaFlow/README.txt', 'w', encoding='utf-8') as f:
+    # Create dist directory if it doesn't exist
+    os.makedirs('dist', exist_ok=True)
+    with open('dist/README.txt', 'w', encoding='utf-8') as f:
         f.write(readme)
 
 def create_zip():
@@ -101,11 +103,15 @@ def create_zip():
     zip_name = f'LumaFlow_Portable_v{APP_METADATA["version"]}.zip'
 
     with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        dist_dir = Path('dist/LumaFlow')
-        for file in dist_dir.rglob('*'):
-            if file.is_file():
-                arcname = file.relative_to('dist')
-                zipf.write(file, arcname)
+        # Add the executable
+        exe_path = Path('dist/LumaFlow.exe')
+        if exe_path.exists():
+            zipf.write(exe_path, 'LumaFlow.exe')
+
+        # Add README
+        readme_path = Path('dist/README.txt')
+        if readme_path.exists():
+            zipf.write(readme_path, 'README.txt')
 
     print(f"压缩包已创建: {zip_name}")
     print(f"大小: {os.path.getsize(zip_name) / 1024 / 1024:.1f} MB")
