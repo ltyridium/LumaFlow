@@ -26,7 +26,7 @@ def build_exe():
         '--name=LumaFlow',
         '--icon=resources/icons/icon.png' if os.path.exists('resources/icons/icon.png') else '',
         '--windowed',
-        '--onedir',
+        '--onefile',  # 修改为单文件输出
         '--add-data=resources;resources',
         '--hidden-import=PySide6.QtCore',
         '--hidden-import=PySide6.QtGui',

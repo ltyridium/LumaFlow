@@ -62,6 +62,12 @@ class AudioTrackWidget(pg.PlotWidget):
         self.setBackground('#1a1a1a')  # 深色背景更适合频谱图
         self.plot_item.showGrid(x=True, y=False, alpha=0.2)
 
+        # Set fixed width for Y-axis to align with timeline widget
+        self.freq_axis.setLabel('频率', units='Hz')
+        self.freq_axis.setWidth(70)
+        self.freq_axis.setStyle(autoExpandTextSpace=False)
+        self.plot_item.layout.setContentsMargins(0, 0, 0, 0)
+
         # 只启用 X 轴交互，禁用 Y 轴鼠标拖动
         self.setMouseEnabled(x=True, y=False)
         self.plot_item.vb.disableAutoRange(axis=pg.ViewBox.XAxis)
@@ -78,9 +84,6 @@ class AudioTrackWidget(pg.PlotWidget):
         # Y 轴范围设为 0-128（对应 128 个 Mel 频段）
         self.plot_item.setYRange(0, 128, padding=0)
         self.plot_item.setXRange(0, 1000, padding=0)
-
-        # 设置 Y 轴宽度
-        self.freq_axis.setWidth(50)
 
         # 音频可视化项（高度 128 对应 Mel 频段）
         self.audio_viz_item = AudioVisualizationItem(y_position=0, height=128)
@@ -157,6 +160,10 @@ class AudioTrackWidget(pg.PlotWidget):
             # 设置 Y 轴范围为实际的 Mel 频段数量
             n_mels = audio_data.spectrogram.shape[0] if audio_data.spectrogram is not None else 128
             self.plot_item.setYRange(0, n_mels, padding=0)
+
+            # 强制坐标轴重新生成刻度标签
+            self.freq_axis.setTicks(None)
+            self.freq_axis.update()
 
             # 自动调整 X 轴到全长
             self.plot_item.setXRange(0, audio_data.duration_ms, padding=0.02)

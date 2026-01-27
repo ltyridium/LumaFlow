@@ -329,26 +329,27 @@ class FastScatterItem(pg.GraphicsObject):
         if self.data is None or len(self.data['x']) == 0:
             return
 
-        # 创建一个用于高亮边缘的画笔，1像素白色
-        highlight_pen = pg.mkPen(color=(255, 255, 255), width=1) 
-        frame_pen = pg.mkPen(color=(0, 0, 0), width=1) 
-        # 遍历所有要绘制的点 (每个点代表一个通道的一个矩形)
-        for i in range(len(self.data['x'])):
-            # 设置填充颜色
-            painter.setBrush(pg.mkBrush(self.data['r'][i], self.data['g'][i], self.data['b'][i]))
-            
-            # 1. 先绘制一个没有边框的填充矩形
-            painter.setPen(Qt.NoPen)
-            rect = QRectF(self.data['x'][i], self.data['y'][i] - 0.5, self.data['w'][i], 1.0)
-            painter.drawRect(rect)
-            
-            # 2. 再使用高亮画笔单独绘制这个矩形的左边框
-            frame_pen.setStyle(Qt.DashDotDotLine)  # 设置为点划线样式
-            painter.setPen(frame_pen)
-            # 获取矩形的左上角和左下角坐标
-            p1 = rect.topLeft()
-            p2 = rect.bottomLeft()
-            painter.drawLine(p1, p2)
+        painter.save()
+        try:
+            frame_pen = pg.mkPen(color=(0, 0, 0), width=1, style=Qt.DashDotDotLine)
+            # 遍历所有要绘制的点 (每个点代表一个通道的一个矩形)
+            for i in range(len(self.data['x'])):
+                # 直接使用 QColor 效率更高
+                painter.setBrush(QColor(self.data['r'][i], self.data['g'][i], self.data['b'][i]))
+
+                # 1. 先绘制一个没有边框的填充矩形
+                painter.setPen(Qt.NoPen)
+                rect = QRectF(self.data['x'][i], self.data['y'][i] - 0.5, self.data['w'][i], 1.0)
+                painter.drawRect(rect)
+
+                # 2. 再使用画笔单独绘制这个矩形的左边框
+                painter.setPen(frame_pen)
+                # 获取矩形的左上角和左下角坐标
+                p1 = rect.topLeft()
+                p2 = rect.bottomLeft()
+                painter.drawLine(p1, p2)
+        finally:
+            painter.restore()
 
     def boundingRect(self):
         return self._boundingRect
@@ -395,60 +396,64 @@ class IDXIndicatorsItem(pg.GraphicsObject):
         if transform is None:
             return
 
-        painter.setPen(self.no_pen)
+        painter.save()
+        try:
+            painter.setPen(self.no_pen)
 
-        # --- 1. 绘制播放头指示器 (红色三角形) ---
-        if self.playback_head_pos is not None:
-            painter.setBrush(self.playback_brush)
-            pixel_pos = transform.map(QPointF(self.playback_head_pos, -1.0))
-            pixel_triangle = QPolygonF([
-                pixel_pos,
-                pixel_pos + QPointF(-5, -8),
-                pixel_pos + QPointF(5, -8),
-            ])
-            painter.drawPolygon(transform.inverted()[0].map(pixel_triangle))
-
-        # --- 2. 绘制选区指示器 (蓝色"旗帜") ---
-        if self.region_start is not None and self.region_end is not None:
-            painter.setBrush(self.region_brush)
-            
-            start_pixel_pos = transform.map(QPointF(self.region_start, -1.0))
-            start_flag = QPolygonF([
-                start_pixel_pos,
-                start_pixel_pos + QPointF(0, -8),
-                start_pixel_pos + QPointF(8, -8),
-                start_pixel_pos + QPointF(8, -5),
-            ])
-            painter.drawPolygon(transform.inverted()[0].map(start_flag))
-
-            end_pixel_pos = transform.map(QPointF(self.region_end, -1.0))
-            end_flag = QPolygonF([
-                end_pixel_pos,
-                end_pixel_pos + QPointF(0, -8),
-                end_pixel_pos + QPointF(-8, -8),
-                end_pixel_pos + QPointF(-8, -5),
-            ])
-            painter.drawPolygon(transform.inverted()[0].map(end_flag))
-
-        # --- 3. 新增：绘制数据帧指示器 (深灰色菱形) ---
-        if self.frame_positions is not None:
-            painter.setBrush(self.frame_brush)
-            for x_pos in self.frame_positions:
-                # 将菱形的中心点（逻辑坐标）映射到像素坐标
-                pixel_pos = transform.map(QPointF(x_pos, -1.0))
-                # 在像素坐标系中定义一个小菱形的形状
-                pixel_diamond = QPolygonF([
-                    pixel_pos + QPointF(0, -3),  # 顶点
-                    pixel_pos + QPointF(3, 0),   # 右点
-                    pixel_pos + QPointF(0, 3),   # 底点
-                    pixel_pos + QPointF(-3, 0),  # 左点
+            # --- 1. 绘制播放头指示器 (红色三角形) ---
+            if self.playback_head_pos is not None:
+                painter.setBrush(self.playback_brush)
+                pixel_pos = transform.map(QPointF(self.playback_head_pos, -1.0))
+                pixel_triangle = QPolygonF([
+                    pixel_pos,
+                    pixel_pos + QPointF(-5, -8),
+                    pixel_pos + QPointF(5, -8),
                 ])
-                # 将像素坐标的菱形转换回逻辑坐标系进行绘制，以确保其大小在屏幕上保持不变
-                painter.drawPolygon(transform.inverted()[0].map(pixel_diamond))
+                painter.drawPolygon(transform.inverted()[0].map(pixel_triangle))
+
+            # --- 2. 绘制选区指示器 (蓝色"旗帜") ---
+            if self.region_start is not None and self.region_end is not None:
+                painter.setBrush(self.region_brush)
+
+                start_pixel_pos = transform.map(QPointF(self.region_start, -1.0))
+                start_flag = QPolygonF([
+                    start_pixel_pos,
+                    start_pixel_pos + QPointF(0, -8),
+                    start_pixel_pos + QPointF(8, -8),
+                    start_pixel_pos + QPointF(8, -5),
+                ])
+                painter.drawPolygon(transform.inverted()[0].map(start_flag))
+
+                end_pixel_pos = transform.map(QPointF(self.region_end, -1.0))
+                end_flag = QPolygonF([
+                    end_pixel_pos,
+                    end_pixel_pos + QPointF(0, -8),
+                    end_pixel_pos + QPointF(-8, -8),
+                    end_pixel_pos + QPointF(-8, -5),
+                ])
+                painter.drawPolygon(transform.inverted()[0].map(end_flag))
+
+            # --- 3. 新增：绘制数据帧指示器 (深灰色菱形) ---
+            if self.frame_positions is not None:
+                painter.setBrush(self.frame_brush)
+                for x_pos in self.frame_positions:
+                    # 将菱形的中心点（逻辑坐标）映射到像素坐标
+                    pixel_pos = transform.map(QPointF(x_pos, -1.0))
+                    # 在像素坐标系中定义一个小菱形的形状
+                    pixel_diamond = QPolygonF([
+                        pixel_pos + QPointF(0, -3),  # 顶点
+                        pixel_pos + QPointF(3, 0),   # 右点
+                        pixel_pos + QPointF(0, 3),   # 底点
+                        pixel_pos + QPointF(-3, 0),  # 左点
+                    ])
+                    # 将像素坐标的菱形转换回逻辑坐标系进行绘制，以确保其大小在屏幕上保持不变
+                    painter.drawPolygon(transform.inverted()[0].map(pixel_diamond))
+        finally:
+            painter.restore()
 
     def boundingRect(self):
-        # 返回一个在水平方向上“无限”的矩形，以防止裁剪并避免重绘循环
-        return QRectF(-1e9, -1.5, 2e9, 0.7)
+        # 返回一个在水平方向上足够大的矩形，覆盖约2.7小时的时间范围
+        return QRectF(-1e7, -1.5, 2e7, 1.0)
 
 class MarkerItem(pg.GraphicsObject):
     """
@@ -479,47 +484,51 @@ class MarkerItem(pg.GraphicsObject):
         self.setAcceptedMouseButtons(Qt.LeftButton)
 
     def paint(self, painter, option, widget):
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.save()
+        try:
+            painter.setRenderHint(QPainter.Antialiasing)
 
-        # --- 1. 绘制从基座向下延伸的垂直线 (在数据坐标系中) ---
-        painter.setPen(self.line_pen)
-        # 从本地坐标(0,0)即y=10，向下绘制到y=0 (CH0中心)
-        painter.drawLine(QPointF(0, 0), QPointF(0, -10))
+            # --- 1. 绘制从基座向下延伸的垂直线 (在数据坐标系中) ---
+            painter.setPen(self.line_pen)
+            # 从本地坐标(0,0)即y=10，向下绘制到y=0 (CH0中心)
+            painter.drawLine(QPointF(0, 0), QPointF(0, -10))
 
-        # --- 2. 采用像素坐标系绘制大小固定的、尖顶朝下的标记头 ---
-        transform = self.deviceTransform()
-        if transform is None:
-            return
+            # --- 2. 采用像素坐标系绘制大小固定的、尖顶朝下的标记头 ---
+            transform = self.deviceTransform()
+            if transform is None:
+                return
 
-        pixel_origin = transform.map(QPointF(0, 0))
-        pixel_path = QPainterPath()
-        
-        # a. 绘制矩形部分 (在基座上方)
-        #    注意：屏幕坐标系Y轴向下为正，所以向上是负值
-        rect = QRectF(
-            pixel_origin.x() - self.head_width / 2,
-            pixel_origin.y() - self.head_height, # 从基座向上绘制
-            self.head_width,
-            self.head_height
-        )
-        pixel_path.addRect(rect)
-        
-        # b. 绘制三角形部分 (在基座下方，尖顶朝下)
-        poly = QPolygonF([
-            QPointF(pixel_origin.x() - self.head_width / 2, pixel_origin.y()), # 左上角
-            QPointF(pixel_origin.x() + self.head_width / 2, pixel_origin.y()), # 右上角
-            QPointF(pixel_origin.x(), pixel_origin.y() + self.roof_height)     # 向下的顶点
-        ])
-        pixel_path.addPolygon(poly)
-        
-        # c. 将像素路径转换回视图坐标系进行绘制
-        painter.setPen(self.outline_pen)
-        painter.setBrush(self.fill_brush)
-        painter.drawPath(transform.inverted()[0].map(pixel_path))
+            pixel_origin = transform.map(QPointF(0, 0))
+            pixel_path = QPainterPath()
+
+            # a. 绘制矩形部分 (在基座上方)
+            #    注意：屏幕坐标系Y轴向下为正，所以向上是负值
+            rect = QRectF(
+                pixel_origin.x() - self.head_width / 2,
+                pixel_origin.y() - self.head_height, # 从基座向上绘制
+                self.head_width,
+                self.head_height
+            )
+            pixel_path.addRect(rect)
+
+            # b. 绘制三角形部分 (在基座下方，尖顶朝下)
+            poly = QPolygonF([
+                QPointF(pixel_origin.x() - self.head_width / 2, pixel_origin.y()), # 左上角
+                QPointF(pixel_origin.x() + self.head_width / 2, pixel_origin.y()), # 右上角
+                QPointF(pixel_origin.x(), pixel_origin.y() + self.roof_height)     # 向下的顶点
+            ])
+            pixel_path.addPolygon(poly)
+
+            # c. 将像素路径转换回视图坐标系进行绘制
+            painter.setPen(self.outline_pen)
+            painter.setBrush(self.fill_brush)
+            painter.drawPath(transform.inverted()[0].map(pixel_path))
+        finally:
+            painter.restore()
 
     def boundingRect(self):
-        # 返回一个合理的边界框，确保在视图内时能被正确重绘
-        # Y范围从下方的线(-10.5)到上方的标记头(约+1个单位)
+        # 修正：垂直线从 0 向下延伸到 -10，头部在 0 附近
+        # X轴给点宽度(-1, 1)，Y轴必须覆盖整个绘制范围 [-10.5, 1.5]
         return QRectF(-1, -1, 2, 12)
 
     def mouseDoubleClickEvent(self, event):
@@ -590,10 +599,13 @@ class TimelineWidget(pg.PlotWidget):
         # --- Y-Axis Setup ---
         y_axis = self.plot_item.getAxis('left')
         y_axis.setLabel('通道')
+        y_axis.setWidth(70)
+        y_axis.setStyle(autoExpandTextSpace=False)
         new_ticks = [[(i, f"CH{i}") for i in range(10)]]
         new_ticks[0].extend([(10, "MARK"), (-1, "IDX")])
         y_axis.setTicks(new_ticks)
         self.plot_item.setYRange(*self.TIMELINE_Y_RANGE, padding=0)
+        self.plot_item.layout.setContentsMargins(0, 0, 0, 0)
         
         # [修改] 彻底禁用 X 和 Y 轴的自动缩放
         self.plot_item.vb.disableAutoRange(axis=pg.ViewBox.YAxis)
@@ -992,7 +1004,7 @@ class TimelineWidget(pg.PlotWidget):
         view_width_ms = view_range[1] - view_range[0]
         if view_width_ms <= 0: return
         pixels_per_ms = self.plot_item.vb.width() / view_width_ms
-        show_text = pixels_per_ms > self.MARKER_TEXT_VISIBILITY_THRESHOLD
+        show_text = bool(pixels_per_ms > self.MARKER_TEXT_VISIBILITY_THRESHOLD)
         for marker_graphic, text_item in zip(self.marker_items, self.marker_text_items):
             text_item.setVisible(show_text)
             if show_text:
@@ -1010,14 +1022,19 @@ class TimelineWidget(pg.PlotWidget):
 
     def on_viewport_changed(self):
         if self.current_data.empty: return
+        # 所有的 UI 更新都由定时器统一触发，避免在信号回调中直接修改坐标
         self.viewport_change_timer.start(50)
-        self.update_zoom_label()
-        self._update_marker_text_visibility()
 
     def _request_render_in_background(self):
         if self.current_data.empty:
             self.scatter_item.clear()
             return
+
+        # 1. 更新缩放百分比标签和标记文字可见性
+        self.update_zoom_label()
+        self._update_marker_text_visibility()
+
+        # 2. 发起后台渲染请求
         df_copy = self.current_data.copy()
         view_range = self.plot_item.viewRange()[0]
         view_width_pixels = self.plot_item.vb.width()

@@ -34,6 +34,12 @@ class KeyboardDeviceManager(QObject):
         # Cached last color (dedup)
         self.last_rgb = None
 
+        # UI settings (not used by gRPC implementation yet)
+        self.target_keyboard = False
+        self.target_lightstrip = True
+        self.selected_channel = 0  # 0 for first channel
+        self.offset_ms = 0
+
     # ------------------------------------------------------------------
     # Low-level helpers
     # ------------------------------------------------------------------
@@ -165,3 +171,31 @@ class KeyboardDeviceManager(QObject):
         self.frames_sent = 0
         self.last_rgb = None
         self.frame_sent.emit(0)
+
+    def reset_frame_tracking(self):
+        """Reset frame tracking for new playback session."""
+        self.reset_stats()
+
+    # ------------------------------------------------------------------
+    # Setter methods for UI configuration
+    # ------------------------------------------------------------------
+
+    def set_device_path(self, path):
+        """Set the HID device path."""
+        self.device_path = path
+
+    def set_target_keyboard(self, enabled):
+        """Enable/disable sending to keyboard."""
+        self.target_keyboard = enabled
+
+    def set_target_lightstrip(self, enabled):
+        """Enable/disable sending to light strip."""
+        self.target_lightstrip = enabled
+
+    def set_selected_channel(self, channel):
+        """Set which channel's RGB to use (-1 for average)."""
+        self.selected_channel = channel
+
+    def set_offset(self, offset_ms):
+        """Set timing offset in milliseconds."""
+        self.offset_ms = offset_ms
