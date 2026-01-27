@@ -983,7 +983,7 @@ class MainWindow(QMainWindow):
             self,
             "About LumaFlow",
             """<h3>LumaFlow</h3>
-            <p>Version 1.0</p>
+            <p>Version 1.1</p>
             <p>Author: Ltyridium <a href="https://space.bilibili.com/38596041"> B站主页</a></p>
             <p>GitHub: <a href="https://github.com/ltyridium/LumaFlow">https://github.com/ltyridium/LumaFlow</a></p>
             <p><a href="https://space.bilibili.com/36081646">关注洛天依谢谢喵</a></p>
