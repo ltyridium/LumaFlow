@@ -6,7 +6,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QFileDialog, QMessageBox, QInputDialog, QSplitter,
-    QStyle, QToolBar, QDockWidget
+    QStyle, QToolBar, QDockWidget, QLabel, QProgressBar
 )
 
 # Assuming these are in the correct project structure
@@ -145,6 +145,16 @@ class MainWindow(QMainWindow):
 
         # --- Status Bar ---
         self.status_bar = self.statusBar()
+
+        # Add progress bar for audio processing
+        self.audio_progress_label = QLabel("")
+        self.audio_progress_bar = QProgressBar()
+        self.audio_progress_bar.setMaximum(100)
+        self.audio_progress_bar.setFixedWidth(200)
+        self.audio_progress_bar.setVisible(False)
+
+        self.status_bar.addPermanentWidget(self.audio_progress_label)
+        self.status_bar.addPermanentWidget(self.audio_progress_bar)
         self.status_bar.showMessage("Ready")
 
         # Apply dark theme by default on startup
@@ -380,8 +390,6 @@ class MainWindow(QMainWindow):
         # Audio control connections
         self.source_audio_controls.visibility_changed.connect(self._on_source_audio_visibility_changed)
         self.edit_audio_controls.visibility_changed.connect(self._on_edit_audio_visibility_changed)
-        self.source_audio_controls.height_changed.connect(self._on_source_audio_height_changed)
-        self.edit_audio_controls.height_changed.connect(self._on_edit_audio_height_changed)
         self.source_audio_controls.channel_mode_changed.connect(self._on_source_audio_channel_changed)
         self.edit_audio_controls.channel_mode_changed.connect(self._on_edit_audio_channel_changed)
         self.source_audio_controls.colormap_changed.connect(self._on_source_audio_colormap_changed)
@@ -835,12 +843,6 @@ class MainWindow(QMainWindow):
     def _on_edit_audio_visibility_changed(self, timeline_type: str, visible: bool):
         self.edit_timeline_group.show_audio_track(visible)
 
-    def _on_source_audio_height_changed(self, timeline_type: str, height: float):
-        self.source_timeline_group.set_audio_height(height)
-
-    def _on_edit_audio_height_changed(self, timeline_type: str, height: float):
-        self.edit_timeline_group.set_audio_height(height)
-
     def _on_source_audio_channel_changed(self, timeline_type: str, mode: str):
         if self.logic.current_source_video_path:
             self.logic.change_audio_channel_mode(timeline_type, self.logic.current_source_video_path, mode)
@@ -906,6 +908,10 @@ class MainWindow(QMainWindow):
                 self.logic.audio_manager.extract_audio(self.logic.current_edit_video_path, mode_code)
 
     def _on_source_audio_data_ready(self, audio_data):
+        # Hide progress bar after completion
+        self.audio_progress_bar.setVisible(False)
+        self.audio_progress_label.setText("")
+
         self.source_audio_controls.clear_progress()
         self.source_timeline_group.set_audio_data(audio_data)
         duration_sec = audio_data.duration_ms / 1000.0
@@ -913,6 +919,10 @@ class MainWindow(QMainWindow):
         self.source_audio_controls.set_audio_loaded(True, info)
 
     def _on_edit_audio_data_ready(self, audio_data):
+        # Hide progress bar after completion
+        self.audio_progress_bar.setVisible(False)
+        self.audio_progress_label.setText("")
+
         self.edit_audio_controls.clear_progress()
         self.edit_timeline_group.set_audio_data(audio_data)
         duration_sec = audio_data.duration_ms / 1000.0
@@ -920,6 +930,10 @@ class MainWindow(QMainWindow):
         self.edit_audio_controls.set_audio_loaded(True, info)
 
     def _on_audio_processing_failed(self, timeline_type: str, error: str):
+        # Hide progress bar on error
+        self.audio_progress_bar.setVisible(False)
+        self.audio_progress_label.setText("")
+
         if timeline_type == 'source':
             self.source_audio_controls.clear_progress()
             self.source_audio_controls.set_error(error)
@@ -929,10 +943,10 @@ class MainWindow(QMainWindow):
 
     def _on_audio_progress(self, timeline_type: str, stage: str, percentage: int):
         """Handle audio processing progress updates"""
-        if timeline_type == 'source':
-            self.source_audio_controls.set_progress(stage, percentage)
-        else:
-            self.edit_audio_controls.set_progress(stage, percentage)
+        # Show progress in main window status bar
+        self.audio_progress_label.setText(f"{stage} ({percentage}%)")
+        self.audio_progress_bar.setValue(percentage)
+        self.audio_progress_bar.setVisible(True)
 
     def on_open_audio_settings(self):
         """Open the audio settings dialog"""
@@ -979,16 +993,9 @@ class MainWindow(QMainWindow):
         self._refresh_serial_ports()
 
     def on_about(self):
-        QMessageBox.about(
-            self,
-            "About LumaFlow",
-            """<h3>LumaFlow</h3>
-            <p>Version 1.1</p>
-            <p>Author: Ltyridium <a href="https://space.bilibili.com/38596041"> B站主页</a></p>
-            <p>GitHub: <a href="https://github.com/ltyridium/LumaFlow">https://github.com/ltyridium/LumaFlow</a></p>
-            <p><a href="https://space.bilibili.com/36081646">关注洛天依谢谢喵</a></p>
-            """
-        )
+        from .dialogs import AboutDialog
+        dialog = AboutDialog(self)
+        dialog.exec()
 
     def _refresh_serial_ports(self):
         """Refresh the list of available serial ports."""

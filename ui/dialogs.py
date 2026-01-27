@@ -1,10 +1,13 @@
 from PySide6.QtWidgets import (
     QDialog, QGridLayout, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QLineEdit,
-    QColorDialog, QDialogButtonBox, QGroupBox, QComboBox
+    QColorDialog, QDialogButtonBox, QGroupBox, QComboBox, QTextBrowser
 )
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtCore import Qt
+import platform
+import vlc
+from core.metadata import APP_METADATA
 
 class EffectDialog(QDialog):
     """A general-purpose dialog for configuring lighting effects."""
@@ -231,3 +234,63 @@ class ColorPickerDialog(QDialog):
             'function': self.function_combo.currentIndex(),
             'marker': self.marker_edit.text().strip()
         }
+
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("关于 LumaFlow")
+        self.setFixedSize(450, 380)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # 头部：图标和基本信息
+        header_layout = QHBoxLayout()
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("resources/icons/icon.png").scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        logo_label.setPixmap(logo_pixmap)
+        
+        info_v_layout = QVBoxLayout()
+        title_label = QLabel("LumaFlow")
+        title_label.setStyleSheet("font-size: 18pt; font-weight: bold;")
+        version_label = QLabel(f"版本: {APP_METADATA['version']}")
+        info_v_layout.addWidget(title_label)
+        info_v_layout.addWidget(version_label)
+        
+        header_layout.addWidget(logo_label)
+        header_layout.addLayout(info_v_layout)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+
+        # 中间：详细描述和链接
+        content = QTextBrowser()
+        content.setOpenExternalLinks(True)
+        # 使用 HTML 渲染，增加系统环境检测，方便排错
+        vlc_ver = vlc.libvlc_get_version().decode() if hasattr(vlc, 'libvlc_get_version') else "未找到"
+        
+        html = f"""
+        <p>{APP_METADATA['description']}</p>
+        <hr>
+        <b>开发者:</b> {APP_METADATA['author']} <br>
+        <b>GitHub:</b> <a href="{APP_METADATA['github']}">代码仓库</a> | 
+        <b>Bilibili:</b> <a href="{APP_METADATA['bilibili']}">关注作者</a>
+        <hr>
+        <p style='color: gray; font-size: 9pt;'>
+        <b>运行环境:</b><br>
+        Python: {platform.python_version()}<br>
+        VLC Core: {vlc_ver}<br>
+        OS: {platform.system()} {platform.release()}
+        </p>
+        <p align="center" style="font-style: italic;">关注洛天依谢谢喵 <a href="{APP_METADATA['luotianyi']}">qwq)</a></p>
+        """
+        content.setHtml(html)
+        layout.addWidget(content)
+
+        # 底部按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        close_btn = QPushButton("确定")
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)

@@ -10,7 +10,6 @@ class AudioControlsWidget(QWidget):
     # Signals
     visibility_changed = Signal(str, bool)  # timeline_type, visible
     channel_mode_changed = Signal(str, str)  # timeline_type, mode
-    height_changed = Signal(str, float)     # timeline_type, height
     colormap_changed = Signal(str, str)     # timeline_type, colormap
     processing_params_changed = Signal(str, dict)  # timeline_type, params (fmin, fmax)
 
@@ -41,26 +40,6 @@ class AudioControlsWidget(QWidget):
         channel_layout.addWidget(channel_label)
         channel_layout.addWidget(self.channel_combo)
         layout.addLayout(channel_layout)
-
-        # Height slider
-        height_layout = QVBoxLayout()
-        height_label_layout = QHBoxLayout()
-        height_label = QLabel("轨道高度:")
-        self.height_value_label = QLabel("1.0")
-        height_label_layout.addWidget(height_label)
-        height_label_layout.addStretch()
-        height_label_layout.addWidget(self.height_value_label)
-        height_layout.addLayout(height_label_layout)
-
-        self.height_slider = QSlider(Qt.Horizontal)
-        self.height_slider.setMinimum(5)  # 0.5 * 10
-        self.height_slider.setMaximum(30)  # 3.0 * 10
-        self.height_slider.setValue(10)  # 1.0 * 10
-        self.height_slider.setTickPosition(QSlider.TicksBelow)
-        self.height_slider.setTickInterval(5)
-        self.height_slider.setEnabled(False)
-        height_layout.addWidget(self.height_slider)
-        layout.addLayout(height_layout)
 
         # Colormap selection
         colormap_layout = QHBoxLayout()
@@ -114,19 +93,12 @@ class AudioControlsWidget(QWidget):
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
-        # Progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setMaximum(100)
-        layout.addWidget(self.progress_bar)
-
         layout.addStretch()
 
     def _connect_signals(self):
         """Connect internal signals"""
         self.show_checkbox.toggled.connect(self._on_visibility_changed)
         self.channel_combo.currentTextChanged.connect(self._on_channel_changed)
-        self.height_slider.valueChanged.connect(self._on_height_changed)
         self.colormap_combo.currentTextChanged.connect(self._on_colormap_changed)
         self.apply_params_btn.clicked.connect(self._on_apply_params)
 
@@ -134,7 +106,6 @@ class AudioControlsWidget(QWidget):
         """Handle visibility checkbox toggle"""
         # Enable/disable controls based on visibility
         self.channel_combo.setEnabled(checked)
-        self.height_slider.setEnabled(checked)
         self.colormap_combo.setEnabled(checked)
         self.min_freq_spin.setEnabled(checked)
         self.max_freq_spin.setEnabled(checked)
@@ -153,12 +124,6 @@ class AudioControlsWidget(QWidget):
         }
         mode = mode_map.get(text, "stereo")
         self.channel_mode_changed.emit(self.timeline_type, mode)
-
-    def _on_height_changed(self, value: int):
-        """Handle height slider change"""
-        height = value / 10.0  # Convert from int to float
-        self.height_value_label.setText(f"{height:.1f}")
-        self.height_changed.emit(self.timeline_type, height)
 
     def _on_colormap_changed(self, text: str):
         """Handle colormap selection change"""
@@ -190,7 +155,6 @@ class AudioControlsWidget(QWidget):
             # 只有在已显示的情况下才启用控件
             if self.show_checkbox.isChecked():
                 self.channel_combo.setEnabled(True)
-                self.height_slider.setEnabled(True)
                 self.colormap_combo.setEnabled(True)
                 self.min_freq_spin.setEnabled(True)
                 self.max_freq_spin.setEnabled(True)
@@ -202,7 +166,6 @@ class AudioControlsWidget(QWidget):
             self.show_checkbox.setChecked(False)
             # Disable all controls
             self.channel_combo.setEnabled(False)
-            self.height_slider.setEnabled(False)
             self.colormap_combo.setEnabled(False)
             self.min_freq_spin.setEnabled(False)
             self.max_freq_spin.setEnabled(False)
@@ -214,23 +177,17 @@ class AudioControlsWidget(QWidget):
         self.status_label.setStyleSheet("color: red; font-size: 9pt;")
         self.show_checkbox.setEnabled(False)
         self.show_checkbox.setChecked(False)
-        self.progress_bar.setVisible(False)
         # Disable all controls
         self.channel_combo.setEnabled(False)
-        self.height_slider.setEnabled(False)
         self.colormap_combo.setEnabled(False)
         self.min_freq_spin.setEnabled(False)
         self.max_freq_spin.setEnabled(False)
         self.apply_params_btn.setEnabled(False)
 
     def set_progress(self, stage: str, percentage: int):
-        """Update progress bar and status"""
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(percentage)
-        self.status_label.setText(f"{stage} ({percentage}%)")
-        self.status_label.setStyleSheet("color: blue; font-size: 9pt;")
+        """Update progress bar and status - now handled by main window"""
+        pass
 
     def clear_progress(self):
-        """Hide progress bar"""
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setValue(0)
+        """Hide progress bar - now handled by main window"""
+        pass

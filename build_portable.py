@@ -9,6 +9,10 @@ import subprocess
 import zipfile
 from pathlib import Path
 
+# Import metadata for version info
+sys.path.insert(0, os.path.dirname(__file__))
+from core.metadata import APP_METADATA
+
 def clean_build():
     """清理之前的构建文件"""
     dirs_to_clean = ['build', 'dist']
@@ -68,7 +72,7 @@ def build_exe():
 
 def create_readme():
     """创建使用说明"""
-    readme = """LumaFlow 免安装版
+    readme = f"""LumaFlow 免安装版
 
 使用方法:
 1. 解压此压缩包到任意目录
@@ -84,7 +88,8 @@ def create_readme():
 - 某些杀毒软件可能误报，请添加信任
 - 不要删除程序目录下的其他文件
 
-版本: 1.0
+版本: {APP_METADATA['version']}
+作者: {APP_METADATA['author']}
 """
     with open('dist/LumaFlow/README.txt', 'w', encoding='utf-8') as f:
         f.write(readme)
@@ -93,7 +98,7 @@ def create_zip():
     """创建压缩包"""
     print("创建压缩包...")
 
-    zip_name = 'LumaFlow_Portable_v1.0.zip'
+    zip_name = f'LumaFlow_Portable_v{APP_METADATA["version"]}.zip'
 
     with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
         dist_dir = Path('dist/LumaFlow')
@@ -130,7 +135,7 @@ def main():
     create_zip()
 
     print("\n构建完成!")
-    print("分发文件: LumaFlow_Portable_v1.0.zip")
+    print(f"分发文件: LumaFlow_Portable_v{APP_METADATA['version']}.zip")
 
     return 0
 

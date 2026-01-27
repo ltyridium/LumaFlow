@@ -1023,7 +1023,7 @@ class TimelineWidget(pg.PlotWidget):
     def on_viewport_changed(self):
         if self.current_data.empty: return
         # 所有的 UI 更新都由定时器统一触发，避免在信号回调中直接修改坐标
-        self.viewport_change_timer.start(50)
+        self.viewport_change_timer.start(10)
 
     def _request_render_in_background(self):
         if self.current_data.empty:
