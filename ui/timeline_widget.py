@@ -13,7 +13,7 @@ from pyqtgraph import functions as fn
 
 # PySide6 imports
 from PySide6.QtCore import Qt, Signal, QThread, QObject, QRectF, QPointF, Signal as pyqtSignal, QTimer, Slot as pyqtSlot
-from PySide6.QtGui import QColor, QPolygonF, QPainterPath, QPainter
+from PySide6.QtGui import QColor, QPolygonF, QPainterPath, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QLabel
 
 # Local imports
@@ -127,6 +127,7 @@ class RenderWorker(QObject):
                 'r': np.zeros(n_points, dtype=np.uint8),
                 'g': np.zeros(n_points, dtype=np.uint8),
                 'b': np.zeros(n_points, dtype=np.uint8),
+                'function': np.zeros(n_points, dtype=np.uint8),
             }
             
             for i in range(num_channels):
@@ -136,10 +137,12 @@ class RenderWorker(QObject):
                 raw_r = df_final[f'ch{i}_red'].values.astype(int)
                 raw_g = df_final[f'ch{i}_green'].values.astype(int)
                 raw_b = df_final[f'ch{i}_blue'].values.astype(int)
+                raw_func = df_final[f'ch{i}_function'].values.astype(int)
 
                 render_data['r'][indices] = color_calibration.r_lut[raw_r]
                 render_data['g'][indices] = color_calibration.g_lut[raw_g]
                 render_data['b'][indices] = color_calibration.b_lut[raw_b]
+                render_data['function'][indices] = raw_func
 
             brect = QRectF(df_final['frame_time_ms'].min(), -0.5, 
                         (df_final['frame_time_ms'] + df_final['width']).max() - df_final['frame_time_ms'].min(), 10)
@@ -313,17 +316,19 @@ class FastScatterItem(pg.GraphicsObject):
     def __init__(self):
         super().__init__()
         self.data = None
+        self.is_raw_data = False
         self.pen = pg.mkPen(color=(80, 80, 80), width=0.5) # 更细的笔，在大视图下效果更好
         self._boundingRect = QRectF()
 
-    def setData(self, data, boundingRect):
+    def setData(self, data, boundingRect, is_raw_data=False):
         self.data = data
         self._boundingRect = boundingRect
+        self.is_raw_data = is_raw_data
         self.prepareGeometryChange()
         self.update()
 
     def clear(self):
-        self.setData(None, QRectF())
+        self.setData(None, QRectF(), False)
 
     def paint(self, painter, option, widget):
         if self.data is None or len(self.data['x']) == 0:
@@ -342,7 +347,13 @@ class FastScatterItem(pg.GraphicsObject):
                 rect = QRectF(self.data['x'][i], self.data['y'][i] - 0.5, self.data['w'][i], 1.0)
                 painter.drawRect(rect)
 
-                # 2. 再使用画笔单独绘制这个矩形的左边框
+                # 2. 绘制功能模式纹理 (仅在非合并模式下)
+                if self.is_raw_data and 'function' in self.data:
+                    func_mode = self.data['function'][i]
+                    if func_mode > 0:  # 跳过模式0 (常亮)
+                        self._draw_vertical_lines(painter, rect, func_mode)
+
+                # 3. 再使用画笔单独绘制这个矩形的左边框
                 painter.setPen(frame_pen)
                 # 获取矩形的左上角和左下角坐标
                 p1 = rect.topLeft()
@@ -350,6 +361,21 @@ class FastScatterItem(pg.GraphicsObject):
                 painter.drawLine(p1, p2)
         finally:
             painter.restore()
+
+    def _draw_vertical_lines(self, painter, rect, func_mode):
+        """根据功能模式绘制垂直线纹理"""
+        line_counts = {1: 2, 2: 3, 3: 5}  # 1Hz=2线, 2Hz=3线, 4Hz=5线
+        num_lines = line_counts.get(func_mode, 0)
+
+        if num_lines == 0 or rect.width() < 3:  # 太窄则跳过
+            return
+
+        painter.setPen(QPen(QColor(40, 40, 40), 1))  # 深灰色, 1像素宽
+
+        # 在帧宽度内均匀分布线条
+        for j in range(num_lines):
+            x_offset = rect.left() + (j + 1) * rect.width() / (num_lines + 1)
+            painter.drawLine(QPointF(x_offset, rect.top()), QPointF(x_offset, rect.bottom()))
 
     def boundingRect(self):
         return self._boundingRect
@@ -1046,7 +1072,7 @@ class TimelineWidget(pg.PlotWidget):
             self.scatter_item.clear()
             self.idx_indicators_item.setFramePositions(None)
         else:
-            self.scatter_item.setData(render_data, brect)
+            self.scatter_item.setData(render_data, brect, is_raw_data)
             if is_raw_data:
                 self.idx_indicators_item.setFramePositions(np.unique(render_data['x']))
             else:
@@ -1280,6 +1306,17 @@ class TimelineWidget(pg.PlotWidget):
             color_action = menu.addAction("Insert Color Frame...")
             color_action.triggered.connect(lambda: self.insert_color_dialog_requested.emit(time_ms))
 
+            menu.addSeparator()
+
+            # Generate submenu
+            generate_menu = menu.addMenu("Generate")
+            breathing_action = generate_menu.addAction("Breathing Effect...")
+            breathing_action.triggered.connect(self._trigger_breathing)
+            rainbow_action = generate_menu.addAction("Rainbow Effect...")
+            rainbow_action.triggered.connect(self._trigger_rainbow)
+            gradient_action = generate_menu.addAction("Gradient...")
+            gradient_action.triggered.connect(self._trigger_gradient)
+
         menu.addSeparator()
 
         # Marker action
@@ -1303,6 +1340,21 @@ class TimelineWidget(pg.PlotWidget):
         name, ok = QInputDialog.getText(self, "Add Marker", "Marker Name:")
         if ok and name:
             self.add_marker_requested.emit(time_ms, name)
+
+    def _trigger_breathing(self):
+        main_window = self.window()
+        if hasattr(main_window, 'on_generate_breathing'):
+            main_window.on_generate_breathing()
+
+    def _trigger_rainbow(self):
+        main_window = self.window()
+        if hasattr(main_window, 'on_generate_rainbow'):
+            main_window.on_generate_rainbow()
+
+    def _trigger_gradient(self):
+        main_window = self.window()
+        if hasattr(main_window, 'on_generate_gradient'):
+            main_window.on_generate_gradient()
 
     def is_playing(self) -> bool:
         """Check if video associated with this timeline is playing."""

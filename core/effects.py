@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from utils.numba_funcs import compute_breathing_brightness, compute_rainbow_colors
+from utils.numba_funcs import compute_breathing_brightness, compute_rainbow_colors, compute_gradient_colors
 
 class EffectGenerator:
     @staticmethod
@@ -60,5 +60,40 @@ class EffectGenerator:
             data[f'ch{i}_red'] = colors_array[:, i, 0].astype(np.int32)
             data[f'ch{i}_green'] = colors_array[:, i, 1].astype(np.int32)
             data[f'ch{i}_blue'] = colors_array[:, i, 2].astype(np.int32)
-        
+
+        return pd.DataFrame(data)
+
+    @staticmethod
+    def create_gradient_df(duration_ms, interval_ms, control_points, mode, columns):
+        """生成渐变效果 (mode: 0=RGB混合, 1=HSV顺时针, 2=HSV逆时针)"""
+        times = np.arange(0, duration_ms, interval_ms)
+
+        if len(times) == 0:
+            return pd.DataFrame()
+
+        positions = np.array([p['position'] for p in control_points])
+        hues = np.array([p['hue'] for p in control_points])
+        saturations = np.array([p['saturation'] for p in control_points])
+        values = np.array([p['value'] for p in control_points])
+
+        colors_array = compute_gradient_colors(times, positions, hues, saturations, values, 10, mode)
+
+        n_frames = len(times)
+        data = {}
+
+        for col in columns:
+            if col not in ['frame_time_ms', 'frame_id', 'frame_type', 'marker']:
+                data[col] = np.zeros(n_frames, dtype=np.int32)
+
+        data['frame_time_ms'] = times
+        data['frame_id'] = np.arange(1, n_frames + 1)
+        data['frame_type'] = ['gradient'] * n_frames
+        data['marker'] = [''] * n_frames
+
+        for i in range(10):
+            data[f'ch{i}_function'] = np.zeros(n_frames, dtype=np.int32)
+            data[f'ch{i}_red'] = colors_array[:, i, 0].astype(np.int32)
+            data[f'ch{i}_green'] = colors_array[:, i, 1].astype(np.int32)
+            data[f'ch{i}_blue'] = colors_array[:, i, 2].astype(np.int32)
+
         return pd.DataFrame(data)

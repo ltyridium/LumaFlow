@@ -246,16 +246,36 @@ class AppLogic(QObject):
         interval_ms = params.get('interval', 100.0)
         speed = params.get('speed', 0.1)
         at_ms = params.get('at_ms', self.data_manager.get_timeline_stats()['end_time_ms'])  # Use playback head time or end of timeline
-        
+
         effect_df = EffectGenerator.create_rainbow_df(
-            duration_ms, interval_ms, speed, 
+            duration_ms, interval_ms, speed,
             self.data_manager.main_df.columns
         )
         command = InsertEffectCommand(
-            self.data_manager, 
-            at_ms, 
-            effect_df, 
+            self.data_manager,
+            at_ms,
+            effect_df,
             "Rainbow Effect"
+        )
+        self._execute_command(command)
+
+    @Slot(dict)
+    def generate_gradient_effect(self, params):
+        control_points = params.get('control_points', [])
+        mode = params.get('mode', 0)  # 0=RGB, 1=HSV CW, 2=HSV CCW
+        interval_ms = params.get('interval', 100.0)
+        duration_ms = params.get('duration', 5000.0)
+        at_ms = params.get('at_ms', self.data_manager.get_timeline_stats()['end_time_ms'])
+
+        effect_df = EffectGenerator.create_gradient_df(
+            duration_ms, interval_ms, control_points, mode,
+            self.data_manager.main_df.columns
+        )
+        command = InsertEffectCommand(
+            self.data_manager,
+            at_ms,
+            effect_df,
+            "Gradient Effect"
         )
         self._execute_command(command)
 

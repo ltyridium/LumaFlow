@@ -35,6 +35,7 @@ class MainWindow(QMainWindow):
     insert_color_frame_requested = Signal(float, dict, int, str) # at_ms, color, function, marker
     generate_breathing_effect_requested = Signal(dict)
     generate_rainbow_effect_requested = Signal(dict)
+    generate_gradient_effect_requested = Signal(dict)
 
     def __init__(self, app_logic, parent=None):
         super().__init__(parent)
@@ -257,6 +258,7 @@ class MainWindow(QMainWindow):
         # Generate actions (remain in menu as they are less frequent)
         self.generate_breathing_action = QAction("Generate Breathing Effect", self)
         self.generate_rainbow_action = QAction("Generate Rainbow Effect", self)
+        self.generate_gradient_action = QAction("Generate Gradient", self)
 
         # Offset actions (remain in menu)
         self.offset_dialog_action = QAction("Specify Offset...", self)
@@ -327,6 +329,7 @@ class MainWindow(QMainWindow):
         generate_menu = timeline_menu.addMenu("Generate")
         generate_menu.addAction(self.generate_breathing_action)
         generate_menu.addAction(self.generate_rainbow_action)
+        generate_menu.addAction(self.generate_gradient_action)
         timeline_menu.addSeparator()
         offset_menu = timeline_menu.addMenu("Offset")
         offset_menu.addAction(self.offset_dialog_action)
@@ -370,6 +373,7 @@ class MainWindow(QMainWindow):
         self.edit_frame_action.triggered.connect(self.on_edit_frame)  # Per PRD 5.1
         self.generate_breathing_action.triggered.connect(self.on_generate_breathing)
         self.generate_rainbow_action.triggered.connect(self.on_generate_rainbow)
+        self.generate_gradient_action.triggered.connect(self.on_generate_gradient)
 
         self.offset_dialog_action.triggered.connect(self.on_show_offset_dialog)
         self.offset_left_action.triggered.connect(lambda: self.on_apply_offset(-100))
@@ -435,6 +439,7 @@ class MainWindow(QMainWindow):
         self.insert_color_frame_requested.connect(self.logic.insert_color_frame)
         self.generate_breathing_effect_requested.connect(self.logic.generate_breathing_effect)
         self.generate_rainbow_effect_requested.connect(self.logic.generate_rainbow_effect)
+        self.generate_gradient_effect_requested.connect(self.logic.generate_gradient_effect)
 
         # Connect signals from timeline widgets directly to the logic controller
         self.source_timeline.add_marker_requested.connect(self.logic.add_marker)
@@ -562,6 +567,19 @@ class MainWindow(QMainWindow):
             params = dialog.get_params()
             params['at_ms'] = self.edit_timeline.get_playback_head_time()
             self.generate_rainbow_effect_requested.emit(params)
+
+    def on_generate_gradient(self):
+        from ui.dialogs import GradientDialog
+        start_ms, end_ms = self.edit_timeline.get_selected_region()
+        if abs(end_ms - start_ms) <= 1:
+            self.set_status_message("请先选择时间区域")
+            return
+
+        dialog = GradientDialog(self, start_ms, end_ms, self.logic.data_manager)
+        if dialog.exec():
+            params = dialog.get_params()
+            params['at_ms'] = start_ms
+            self.generate_gradient_effect_requested.emit(params)
 
     def on_open_calibration(self):
         from ui.dialogs import CalibrationDialog
