@@ -21,6 +21,10 @@ class VideoPlayerWidget(QWidget):
     playback_started = Signal()  # 新增：播放开始信号
     playback_stopped = Signal()  # 新增：播放停止信号
 
+    # Internal signals for thread-safe VLC event handling
+    _vlc_paused_signal = Signal()
+    _vlc_playing_signal = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._is_media_loaded = False
@@ -91,6 +95,10 @@ class VideoPlayerWidget(QWidget):
         self.position_slider.sliderMoved.connect(self._slider_scrubbed)
         self.position_slider.sliderReleased.connect(self._slider_released)
         self.volume_slider.valueChanged.connect(self.change_volume)
+
+        # Connect internal signals for thread-safe VLC event handling
+        self._vlc_paused_signal.connect(self._handle_vlc_paused)
+        self._vlc_playing_signal.connect(self._handle_vlc_playing)
 
         # Connect VLC events
         events = self.media_player.event_manager()
@@ -410,15 +418,45 @@ class VideoPlayerWidget(QWidget):
         print(f"[DEBUG VLC] Buffering: {buffer_percent}%")
 
     def _on_vlc_playing(self, event):
-        """Handle when playback starts."""
+        """Handle when playback starts (called from VLC thread)."""
+        self._vlc_playing_signal.emit()
+
+    def _on_vlc_paused(self, event):
+        """Handle when playback is paused (called from VLC thread)."""
+        self._vlc_paused_signal.emit()
+
+    @Slot()
+    def _handle_vlc_playing(self):
+        """Handle playback start in main thread."""
         if self._auto_pause_on_play:
             self.media_player.pause()
             self._auto_pause_on_play = False
+            return
+
+        # Force sync with VLC time and initialize master clock
+        vlc_time = self.media_player.get_time()
+        if vlc_time >= 0:
+            self.current_time_ms = vlc_time
+        self.playback_start_time = time.perf_counter()
+        self.playback_start_offset_ms = self.current_time_ms
+        self.last_vlc_time_ms = -1
+        self.vlc_read_counter = 0
+        self.last_reported_vlc_time = -1
+        self.smooth_drift = 0
+        self.last_tick_perf = time.perf_counter()
+        self.master_clock_timer.start()
+
         self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
         self._is_playing = True
 
-    def _on_vlc_paused(self, event):
-        """Handle when playback is paused."""
+    @Slot()
+    def _handle_vlc_paused(self):
+        """Handle playback pause in main thread."""
+        self.master_clock_timer.stop()
+        # Force sync with VLC time to prevent drift
+        vlc_time = self.media_player.get_time()
+        if vlc_time >= 0:
+            self.current_time_ms = vlc_time
         self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self._is_playing = False
 
