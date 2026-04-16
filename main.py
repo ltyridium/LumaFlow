@@ -5,6 +5,7 @@ from PySide6.QtCore import QSettings
 from ui.main_window import MainWindow
 from app_logic import AppLogic
 from PySide6.QtGui import QIcon
+from core.i18n import tr
 
 def check_dependencies():
     """Check if required external dependencies (VLC, FFmpeg) are available."""
@@ -30,12 +31,10 @@ def check_dependencies():
         app = QApplication.instance() or QApplication(sys.argv)
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Critical)
-        msg.setWindowTitle("Missing Dependencies")
-        msg.setText("The following required dependencies are missing or not found in PATH:")
-        msg.setInformativeText("\n".join(f"- {item}" for item in missing) +
-                             "\n\nPlease install them and try again.\n" +
-                             "For VLC: Install VLC Media Player (ensure bitness matches Python)\n" +
-                             "For FFmpeg: Download and add to system PATH")
+        msg.setWindowTitle(tr("dependency.missing_title"))
+        msg.setText(tr("dependency.missing_text"))
+        items = "\n".join(f"- {item}" for item in missing)
+        msg.setInformativeText(tr("dependency.missing_info", items=items))
         msg.exec()
         return False
 

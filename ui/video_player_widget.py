@@ -6,6 +6,7 @@ import time
 from urllib.parse import unquote
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QEvent
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QFrame, QStyle, QSizePolicy
+from core.i18n import tr
 
 try:
     import vlc
@@ -98,21 +99,21 @@ class VideoPlayerWidget(QWidget):
 
         self.fullscreen_button = QPushButton()
         self.fullscreen_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton))
-        self.fullscreen_button.setToolTip("Toggle fullscreen (F11 / Esc)")
+        self.fullscreen_button.setToolTip(tr("video.fullscreen_tooltip"))
 
         self.position_slider = QSlider(Qt.Horizontal)
         self.position_slider.setRange(0, 1000)
         self.position_slider.setEnabled(False)
-        self.position_slider.setToolTip("Video position")
+        self.position_slider.setToolTip(tr("video.position_tooltip"))
 
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(70)
-        self.volume_slider.setToolTip("Volume")
+        self.volume_slider.setToolTip(tr("video.volume_tooltip"))
 
-        self.file_label = QLabel("No video loaded")
+        self.file_label = QLabel(tr("video.no_video_loaded"))
         self.file_label.setWordWrap(True)
-        self.file_label.setToolTip("Currently loaded video file")
+        self.file_label.setToolTip(tr("video.loaded", name=""))
 
         # --- Layout ---
         control_layout = QHBoxLayout()
@@ -120,7 +121,8 @@ class VideoPlayerWidget(QWidget):
         control_layout.addWidget(self.position_slider)
         control_layout.addWidget(self.fullscreen_button)
         volume_layout = QHBoxLayout()
-        volume_layout.addWidget(QLabel("Volume:"))
+        self.volume_label = QLabel(tr("video.volume"))
+        volume_layout.addWidget(self.volume_label)
         volume_layout.addWidget(self.volume_slider)
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(self.video_frame)
@@ -164,10 +166,7 @@ class VideoPlayerWidget(QWidget):
     def _create_fallback_ui(self):
         """Creates a placeholder UI if VLC is not installed."""
         layout = QVBoxLayout(self)
-        label = QLabel("VLC not found.\nPlease install VLC Media Player and the 'python-vlc' library.\n\n"
-                      "To install:\n"
-                      "1. Download VLC from https://www.videolan.org/vlc/\n"
-                      "2. Install python-vlc: pip install python-vlc")
+        label = QLabel(tr("video.vlc_missing"))
         label.setAlignment(Qt.AlignCenter)
         label.setWordWrap(True)
         label.setStyleSheet("QLabel { color: red; font-weight: bold; }")
@@ -190,7 +189,7 @@ class VideoPlayerWidget(QWidget):
         # Tell VLC where to draw the video
         self._attach_video_to_frame()
 
-        self.file_label.setText(f"Loading: {os.path.basename(file_path)}...")
+        self.file_label.setText(tr("video.loading", name=os.path.basename(file_path)))
 
         # Play and immediately pause to load the first frame and get duration
         # Then immediately pause to ensure video doesn't auto-play after loading
@@ -330,7 +329,9 @@ class VideoPlayerWidget(QWidget):
             self.position_slider.setEnabled(True)
             # Update play button icon to play state since video is loaded
             self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
-            self.file_label.setText(f"Video: {unquote(os.path.basename(self.media_player.get_media().get_mrl()))}")
+            self.file_label.setText(
+                tr("video.loaded", name=unquote(os.path.basename(self.media_player.get_media().get_mrl())))
+            )
             self.change_volume(self.volume_slider.value()) # Set initial volume
         else:
             print("[DEBUG VLC] Failed to get media duration after 500ms.")
@@ -466,7 +467,9 @@ class VideoPlayerWidget(QWidget):
             self.position_slider.setRange(0, duration_ms)
             self.play_button.setEnabled(True)
             self.position_slider.setEnabled(True)
-            self.file_label.setText(f"Video: {unquote(os.path.basename(self.media_player.get_media().get_mrl()))}")
+            self.file_label.setText(
+                tr("video.loaded", name=unquote(os.path.basename(self.media_player.get_media().get_mrl())))
+            )
             self.change_volume(self.volume_slider.value())
 
     def _on_vlc_position_changed(self, event):
@@ -489,7 +492,7 @@ class VideoPlayerWidget(QWidget):
 
     def _on_vlc_error(self, event=None):
         print("[ERROR VLC] An error was encountered.")
-        self.file_label.setText("Error: Could not play media.")
+        self.file_label.setText(tr("video.playback_error"))
         self.play_button.setEnabled(False)
         self.position_slider.setEnabled(False)
         self._is_media_loaded = False
@@ -642,6 +645,5 @@ class VideoPlayerWidget(QWidget):
             if self.media_player.is_playing():
                 self.media_player.stop()
             # Release media and other VLC resources if needed
-
 
 

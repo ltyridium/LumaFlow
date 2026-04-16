@@ -11,6 +11,7 @@ import numpy as np
 import platform
 import vlc
 from core.metadata import APP_METADATA
+from core.i18n import tr
 
 class EffectDialog(QDialog):
     """A general-purpose dialog for configuring lighting effects."""
@@ -38,7 +39,7 @@ class EffectDialog(QDialog):
                 widget.setRange(config.get('min', 1), config.get('max', 1000))
                 widget.setValue(config.get('default', 10))
             elif config['type'] == 'color':
-                widget = QPushButton("选择颜色...")
+                widget = QPushButton(tr("dialog.effect.select_color"))
                 widget.color = QColor(config.get('default', '#FFFFFF'))
                 widget.setStyleSheet(f"background-color: {widget.color.name()}; color: {'black' if widget.color.lightness() > 127 else 'white'};")
                 widget.clicked.connect(lambda _, w=widget: self.select_color(w))
@@ -51,8 +52,8 @@ class EffectDialog(QDialog):
 
         # Use QDialogButtonBox for standard OK/Cancel buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        button_box.button(QDialogButtonBox.StandardButton.Ok).setText("生成")
-        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setText(tr("dialog.effect.generate"))
+        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("dialog.effect.cancel"))
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         main_layout.addWidget(button_box)
@@ -62,7 +63,7 @@ class EffectDialog(QDialog):
     def select_color(self, button):
         # Create HSV color picker dialog
         dialog = QDialog(self)
-        dialog.setWindowTitle("选择颜色")
+        dialog.setWindowTitle(tr("dialog.color_picker.title"))
         dialog.setModal(True)
         layout = QVBoxLayout(dialog)
 
@@ -72,7 +73,7 @@ class EffectDialog(QDialog):
 
         # Brightness slider
         brightness_layout = QHBoxLayout()
-        brightness_layout.addWidget(QLabel("亮度:"))
+        brightness_layout.addWidget(QLabel(tr("dialog.color_picker.brightness")))
         brightness_slider = QSlider(Qt.Orientation.Horizontal)
         brightness_slider.setRange(0, 100)
         brightness_slider.setValue(100)
@@ -81,7 +82,7 @@ class EffectDialog(QDialog):
 
         # Preview and RGB values
         preview_layout = QHBoxLayout()
-        color_preview = QLabel("预览")
+        color_preview = QLabel(tr("dialog.color_picker.preview"))
         color_preview.setMinimumSize(80, 60)
         color_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         color_preview.setAutoFillBackground(True)
@@ -147,13 +148,13 @@ class CalibrationDialog(QDialog):
     """Dialog for adjusting RGB display calibration."""
     def __init__(self, current_gains, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("显示色彩校准")
+        self.setWindowTitle(tr("dialog.calibration.title"))
         self.setModal(True)
         self.setMinimumWidth(300)
 
         layout = QVBoxLayout(self)
 
-        info_lbl = QLabel("调整显示层的RGB增益以匹配硬件表现。\n此操作不修改原始数据 (0-15)。")
+        info_lbl = QLabel(tr("dialog.calibration.info"))
         info_lbl.setWordWrap(True)
         layout.addWidget(info_lbl)
 
@@ -164,26 +165,27 @@ class CalibrationDialog(QDialog):
         self.r_spin.setRange(0.1, 3.0)
         self.r_spin.setSingleStep(0.1)
         self.r_spin.setValue(current_gains['r'])
-        form_layout.addRow("红色增益 (Red):", self.r_spin)
+        form_layout.addRow(tr("dialog.calibration.red_gain"), self.r_spin)
 
         # Green
         self.g_spin = QDoubleSpinBox()
         self.g_spin.setRange(0.1, 3.0)
         self.g_spin.setSingleStep(0.1)
         self.g_spin.setValue(current_gains['g'])
-        form_layout.addRow("绿色增益 (Green):", self.g_spin)
+        form_layout.addRow(tr("dialog.calibration.green_gain"), self.g_spin)
 
         # Blue
         self.b_spin = QDoubleSpinBox()
         self.b_spin.setRange(0.1, 3.0)
         self.b_spin.setSingleStep(0.1)
         self.b_spin.setValue(current_gains['b'])
-        form_layout.addRow("蓝色增益 (Blue):", self.b_spin)
+        form_layout.addRow(tr("dialog.calibration.blue_gain"), self.b_spin)
 
         layout.addLayout(form_layout)
 
         # Buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.RestoreDefaults)
+        button_box.button(QDialogButtonBox.RestoreDefaults).setText(tr("dialog.common.restore_defaults"))
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         button_box.button(QDialogButtonBox.RestoreDefaults).clicked.connect(self.reset_defaults)
@@ -200,7 +202,7 @@ class ColorPickerDialog(QDialog):
     """A dialog for inserting a custom color keyframe."""
     def __init__(self, parent=None, prefill_color=None, prefill_function=0, prefill_marker=""):
         super().__init__(parent)
-        self.setWindowTitle("自定义颜色帧")
+        self.setWindowTitle(tr("dialog.color_frame.title"))
         self.setModal(True)
         self._prefill_color = prefill_color or {'r': 15, 'g': 15, 'b': 15}
         self._prefill_function = prefill_function
@@ -213,7 +215,7 @@ class ColorPickerDialog(QDialog):
         main_layout = QVBoxLayout(self)
 
         # --- Color Selection Group ---
-        color_group = QGroupBox("颜色选择")
+        color_group = QGroupBox(tr("dialog.color_frame.group_color"))
         color_group_layout = QHBoxLayout(color_group)
 
         # HSV Color Wheel
@@ -222,7 +224,7 @@ class ColorPickerDialog(QDialog):
         wheel_layout.addWidget(self.color_wheel)
 
         brightness_layout = QHBoxLayout()
-        brightness_layout.addWidget(QLabel("亮度:"))
+        brightness_layout.addWidget(QLabel(tr("dialog.color_picker.brightness")))
         self.brightness_slider = QSlider(Qt.Orientation.Horizontal)
         self.brightness_slider.setRange(0, 100)
         self.brightness_slider.setValue(100)
@@ -236,12 +238,12 @@ class ColorPickerDialog(QDialog):
         self.r_spinbox = QSpinBox(); self.r_spinbox.setRange(0, 15); self.r_spinbox.setValue(self._prefill_color['r'])
         self.g_spinbox = QSpinBox(); self.g_spinbox.setRange(0, 15); self.g_spinbox.setValue(self._prefill_color['g'])
         self.b_spinbox = QSpinBox(); self.b_spinbox.setRange(0, 15); self.b_spinbox.setValue(self._prefill_color['b'])
-        form_layout.addRow("红 (R):", self.r_spinbox)
-        form_layout.addRow("绿 (G):", self.g_spinbox)
-        form_layout.addRow("蓝 (B):", self.b_spinbox)
+        form_layout.addRow(tr("dialog.color_frame.red"), self.r_spinbox)
+        form_layout.addRow(tr("dialog.color_frame.green"), self.g_spinbox)
+        form_layout.addRow(tr("dialog.color_frame.blue"), self.b_spinbox)
         numeric_layout.addLayout(form_layout)
 
-        self.color_preview = QLabel("预览")
+        self.color_preview = QLabel(tr("dialog.color_picker.preview"))
         self.color_preview.setMinimumSize(80, 60)
         self.color_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.color_preview.setAutoFillBackground(True)
@@ -251,26 +253,37 @@ class ColorPickerDialog(QDialog):
         main_layout.addWidget(color_group)
 
         # --- Additional Options Group ---
-        options_group = QGroupBox("选项")
+        options_group = QGroupBox(tr("dialog.color_frame.group_options"))
         options_layout = QFormLayout(options_group)
         
         self.function_combo = QComboBox()
-        self.function_combo.addItems(["0 - 常亮", "1 - 1Hz频闪", "2 - 2Hz频闪", "3 - 4Hz频闪"])
+        self.function_combo.addItems([
+            tr("dialog.color_frame.function_constant"),
+            tr("dialog.color_frame.function_blink_1hz"),
+            tr("dialog.color_frame.function_blink_2hz"),
+            tr("dialog.color_frame.function_blink_4hz"),
+        ])
         self.function_combo.setCurrentIndex(self._prefill_function)
-        options_layout.addRow("灯光功能:", self.function_combo)
+        options_layout.addRow(tr("dialog.color_frame.function"), self.function_combo)
 
         self.marker_edit = QLineEdit()
-        self.marker_edit.setPlaceholderText("可选，留空则使用默认")
+        self.marker_edit.setPlaceholderText(tr("dialog.color_frame.marker_placeholder"))
         self.marker_edit.setText(self._prefill_marker)
-        options_layout.addRow("标记名称:", self.marker_edit)
+        options_layout.addRow(tr("dialog.color_frame.marker"), self.marker_edit)
         main_layout.addWidget(options_group)
 
         # --- Presets Group ---
-        preset_group = QGroupBox("快速预设")
+        preset_group = QGroupBox(tr("dialog.color_frame.group_presets"))
         preset_layout = QGridLayout(preset_group)
         presets = [
-            ("黑", (0, 0, 0)), ("粉白", (15, 15, 15)), ("红", (15, 0, 0)), ("绿", (0, 15, 0)),
-            ("蓝", (0, 0, 15)), ("黄", (15, 15, 0)), ("紫", (15, 0, 15)), ("青", (0, 15, 15))
+            (tr("dialog.preset.black"), (0, 0, 0)),
+            (tr("dialog.preset.white"), (15, 15, 15)),
+            (tr("dialog.preset.red"), (15, 0, 0)),
+            (tr("dialog.preset.green"), (0, 15, 0)),
+            (tr("dialog.preset.blue"), (0, 0, 15)),
+            (tr("dialog.preset.yellow"), (15, 15, 0)),
+            (tr("dialog.preset.magenta"), (15, 0, 15)),
+            (tr("dialog.preset.cyan"), (0, 15, 15)),
         ]
         for i, (name, (r, g, b)) in enumerate(presets):
             btn = QPushButton(name)
@@ -553,7 +566,7 @@ class GradientDialog(QDialog):
     """Dialog for creating HSV gradient effects with timeline preview"""
     def __init__(self, parent=None, start_ms=0, end_ms=5000, data_manager=None):
         super().__init__(parent)
-        self.setWindowTitle("生成渐变效果")
+        self.setWindowTitle(tr("dialog.gradient.title"))
         self.setModal(True)
         self.setMinimumSize(600, 400)
 
@@ -574,7 +587,7 @@ class GradientDialog(QDialog):
         main_layout = QVBoxLayout(self)
 
         # Interactive preview
-        preview_group = QGroupBox("预览 (点击添加控制点，拖动调整位置，双击编辑颜色)")
+        preview_group = QGroupBox(tr("dialog.gradient.preview_group"))
         preview_layout = QVBoxLayout(preview_group)
         self.preview_widget = GradientPreviewWidget()
         self.preview_widget.control_point_added.connect(self.on_point_added)
@@ -587,21 +600,25 @@ class GradientDialog(QDialog):
         options_layout = QFormLayout()
 
         self.direction_combo = QComboBox()
-        self.direction_combo.addItems(["RGB混合", "HSV顺时针", "HSV逆时针"])
+        self.direction_combo.addItems([
+            tr("dialog.gradient.mode_rgb"),
+            tr("dialog.gradient.mode_hsv_cw"),
+            tr("dialog.gradient.mode_hsv_ccw"),
+        ])
         self.direction_combo.currentIndexChanged.connect(self.update_preview)
-        options_layout.addRow("混合模式:", self.direction_combo)
+        options_layout.addRow(tr("dialog.gradient.mode"), self.direction_combo)
 
         self.interval_spin = QDoubleSpinBox()
         self.interval_spin.setRange(10.0, 1000.0)
         self.interval_spin.setValue(100.0)
         self.interval_spin.setSingleStep(10.0)
-        options_layout.addRow("帧间隔 (ms):", self.interval_spin)
+        options_layout.addRow(tr("dialog.gradient.interval"), self.interval_spin)
 
         self.duration_spin = QDoubleSpinBox()
         self.duration_spin.setRange(100.0, 60000.0)
         self.duration_spin.setValue(self.end_ms - self.start_ms)
         self.duration_spin.setSingleStep(100.0)
-        options_layout.addRow("持续时间 (ms):", self.duration_spin)
+        options_layout.addRow(tr("dialog.gradient.duration"), self.duration_spin)
 
         main_layout.addLayout(options_layout)
 
@@ -725,7 +742,7 @@ class GradientDialog(QDialog):
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("关于 LumaFlow")
+        self.setWindowTitle(tr("dialog.about.title"))
         self.setFixedSize(450, 380)
         self.init_ui()
 
@@ -741,7 +758,7 @@ class AboutDialog(QDialog):
         info_v_layout = QVBoxLayout()
         title_label = QLabel("LumaFlow")
         title_label.setStyleSheet("font-size: 18pt; font-weight: bold;")
-        version_label = QLabel(f"版本: {APP_METADATA['version']}")
+        version_label = QLabel(tr("dialog.about.version", version=APP_METADATA['version']))
         info_v_layout.addWidget(title_label)
         info_v_layout.addWidget(version_label)
         
@@ -754,22 +771,22 @@ class AboutDialog(QDialog):
         content = QTextBrowser()
         content.setOpenExternalLinks(True)
         # 使用 HTML 渲染，增加系统环境检测，方便排错
-        vlc_ver = vlc.libvlc_get_version().decode() if hasattr(vlc, 'libvlc_get_version') else "未找到"
+        vlc_ver = vlc.libvlc_get_version().decode() if hasattr(vlc, 'libvlc_get_version') else tr("dialog.about.vlc_not_found")
         
         html = f"""
-        <p>{APP_METADATA['description']}</p>
+        <p>{tr('dialog.about.description')}</p>
         <hr>
-        <b>开发者:</b> {APP_METADATA['author']} <br>
-        <b>GitHub:</b> <a href="{APP_METADATA['github']}">代码仓库</a> | 
-        <b>Bilibili:</b> <a href="{APP_METADATA['bilibili']}">关注作者</a>
+        <b>{tr('dialog.about.developer')}:</b> {APP_METADATA['author']} <br>
+        <b>{tr('dialog.about.github')}:</b> <a href="{APP_METADATA['github']}">{tr('dialog.about.github_repo')}</a> | 
+        <b>{tr('dialog.about.bilibili')}:</b> <a href="{APP_METADATA['bilibili']}">{tr('dialog.about.bilibili_profile')}</a>
         <hr>
         <p style='color: gray; font-size: 9pt;'>
-        <b>运行环境:</b><br>
+        <b>{tr('dialog.about.environment')}:</b><br>
         Python: {platform.python_version()}<br>
         VLC Core: {vlc_ver}<br>
         OS: {platform.system()} {platform.release()}
         </p>
-        <p align="center" style="font-style: italic;">关注洛天依谢谢喵 <a href="{APP_METADATA['luotianyi']}">qwq)</a></p>
+        <p align="center" style="font-style: italic;">{tr('dialog.about.follow')} <a href="{APP_METADATA['luotianyi']}">qwq)</a></p>
         """
         content.setHtml(html)
         layout.addWidget(content)
@@ -777,7 +794,7 @@ class AboutDialog(QDialog):
         # 底部按钮
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        close_btn = QPushButton("确定")
+        close_btn = QPushButton(tr("dialog.about.ok"))
         close_btn.clicked.connect(self.accept)
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)

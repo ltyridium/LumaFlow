@@ -11,6 +11,7 @@ from core.audio_manager import AudioManager
 from core.serial_device_manager import SerialDeviceManager
 from core.device_output_worker import DeviceOutputWorker
 from core.color_calibration import color_calibration
+from core.i18n import tr
 from core.serial_protocol import build_auth_frame, build_stream_frame, describe_auth_lic
 
 class AppLogic(QObject):
@@ -73,47 +74,51 @@ class AppLogic(QObject):
         try:
             self.undo_manager.execute(command)
             self.timeline_data_changed.emit(self.data_manager.get_full_data())
-            self.status_message_changed.emit(command.description + " - Succeeded")
+            self.status_message_changed.emit(tr("status.command_succeeded_generic"))
         except Exception as e:
-            self.status_message_changed.emit(command.description + f" - Failed: {e}")
+            self.status_message_changed.emit(tr("status.command_failed_generic", error=e))
         finally:
             self.undo_stack_changed.emit(len(self.undo_manager.undo_stack) > 0)
             self.redo_stack_changed.emit(len(self.undo_manager.redo_stack) > 0)
+
+    def _timeline_display_name(self, timeline_type: str) -> str:
+        key = "timeline.source" if timeline_type == "source" else "timeline.edit"
+        return tr(key)
 
     @Slot(str)
     def open_file(self, file_path):
         if self.data_manager.load_csv(file_path):
             self.current_file_path = file_path
             self.timeline_data_changed.emit(self.data_manager.get_full_data())
-            self.status_message_changed.emit(f"Opened {file_path}")
+            self.status_message_changed.emit(tr("status.opened_file", path=file_path))
             self.undo_manager.undo_stack.clear()
             self.undo_manager.redo_stack.clear()
             self.undo_stack_changed.emit(False)
             self.redo_stack_changed.emit(False)
         else:
-            self.status_message_changed.emit(f"Failed to open {file_path}")
+            self.status_message_changed.emit(tr("status.open_failed", path=file_path))
 
     @Slot(str)
     def open_source_file(self, file_path):
         if self.source_data_manager.load_csv(file_path):
             self.source_data_changed.emit(self.source_data_manager.get_full_data())
-            self.status_message_changed.emit(f"Opened source file {file_path}")
+            self.status_message_changed.emit(tr("status.opened_source_file", path=file_path))
         else:
-            self.status_message_changed.emit(f"Failed to open source file {file_path}")
+            self.status_message_changed.emit(tr("status.open_source_failed", path=file_path))
 
     @Slot(str)
     def save_file(self, file_path=None):
         path_to_save = file_path or self.current_file_path
         if not path_to_save:
             # This should be handled by MainWindow triggering a "Save As" dialog
-            self.status_message_changed.emit("No file path specified.")
+            self.status_message_changed.emit(tr("status.no_file_path"))
             return
 
         if self.data_manager.save_csv(path_to_save):
             self.current_file_path = path_to_save
-            self.status_message_changed.emit(f"File saved to {path_to_save}")
+            self.status_message_changed.emit(tr("status.file_saved", path=path_to_save))
         else:
-            self.status_message_changed.emit(f"Failed to save file to {path_to_save}")
+            self.status_message_changed.emit(tr("status.file_save_failed", path=path_to_save))
 
     @Slot(float, float, str)
     def copy_selection(self, start_ms, end_ms, source='edit'):
@@ -130,12 +135,16 @@ class AppLogic(QObject):
                 manager = self.data_manager
                 
             if segment.empty:
-                self.status_message_changed.emit(f"No data to copy from {source}.")
+                self.status_message_changed.emit(
+                    tr("status.no_data_to_copy", source=self._timeline_display_name(source))
+                )
                 return
                 
             self.clipboard_manager.set_clipboard(segment, source)
             self.clipboard_changed.emit(True, source)
-            self.status_message_changed.emit(f"Copied {len(segment)} frames from {source}.")
+            self.status_message_changed.emit(
+                tr("status.copied_frames", count=len(segment), source=self._timeline_display_name(source))
+            )
             
             # Only add to undo stack for edit timeline copy
             if source == 'edit':
@@ -144,7 +153,7 @@ class AppLogic(QObject):
                 self.undo_stack_changed.emit(True)
                 
         except Exception as e:
-            self.status_message_changed.emit(f"Copy failed: {str(e)}")
+            self.status_message_changed.emit(tr("status.copy_failed", error=str(e)))
 
     @Slot(float, float)
     def cut_selection(self, start_ms, end_ms):
@@ -169,9 +178,9 @@ class AppLogic(QObject):
         try:
             self.undo_manager.undo()
             self.timeline_data_changed.emit(self.data_manager.get_full_data())
-            self.status_message_changed.emit("Undo successful.")
+            self.status_message_changed.emit(tr("status.undo_success"))
         except Exception as e:
-            self.status_message_changed.emit(f"Undo failed: {e}")
+            self.status_message_changed.emit(tr("status.undo_failed", error=e))
         finally:
             self.undo_stack_changed.emit(len(self.undo_manager.undo_stack) > 0)
             self.redo_stack_changed.emit(len(self.undo_manager.redo_stack) > 0)
@@ -181,9 +190,9 @@ class AppLogic(QObject):
         try:
             self.undo_manager.redo()
             self.timeline_data_changed.emit(self.data_manager.get_full_data())
-            self.status_message_changed.emit("Redo successful.")
+            self.status_message_changed.emit(tr("status.redo_success"))
         except Exception as e:
-            self.status_message_changed.emit(f"Redo failed: {e}")
+            self.status_message_changed.emit(tr("status.redo_failed", error=e))
         finally:
             self.undo_stack_changed.emit(len(self.undo_manager.undo_stack) > 0)
             self.redo_stack_changed.emit(len(self.undo_manager.redo_stack) > 0)
@@ -313,9 +322,9 @@ class AppLogic(QObject):
             self.undo_stack_changed.emit(False)
             self.redo_stack_changed.emit(False)
             
-            self.status_message_changed.emit(f"Created new edit project with {duration_sec} seconds duration")
+            self.status_message_changed.emit(tr("status.new_edit_created", duration_sec=duration_sec))
         except Exception as e:
-            self.status_message_changed.emit(f"Failed to create new edit project: {str(e)}")
+            self.status_message_changed.emit(tr("status.new_edit_failed", error=str(e)))
 
     @Slot(float, float, float)
     def offset_selection(self, start_ms, end_ms, offset_ms):
@@ -332,7 +341,7 @@ class AppLogic(QObject):
             # 发送信号通知UI更新数据
             self.timeline_data_changed.emit(self.data_manager.get_full_data())
         except Exception as e:
-            self.status_message_changed.emit(f"Failed to offset selection: {str(e)}")
+            self.status_message_changed.emit(tr("status.offset_failed", error=str(e)))
 
     # --- Audio Methods ---
     @Slot(str, str)
@@ -344,13 +353,15 @@ class AppLogic(QObject):
             self.current_edit_video_path = video_path
 
         self.audio_manager.extract_audio(video_path, 'mono')
-        self.status_message_changed.emit(f"Processing audio from {timeline_type} video...")
+        self.status_message_changed.emit(
+            tr("status.processing_audio_from_video", timeline=self._timeline_display_name(timeline_type))
+        )
 
     @Slot(str, str, str)
     def change_audio_channel_mode(self, timeline_type: str, video_path: str, mode: str):
         """Re-process audio with different channel mode"""
         self.audio_manager.extract_audio(video_path, mode)
-        self.status_message_changed.emit(f"Re-processing audio in {mode} mode...")
+        self.status_message_changed.emit(tr("status.reprocessing_audio_mode", mode=mode))
 
     @Slot(str, object)
     def _on_audio_processed(self, video_path: str, audio_data):
@@ -359,13 +370,13 @@ class AppLogic(QObject):
             self.source_audio_processed.emit(audio_data)
             duration_sec = audio_data.duration_ms / 1000.0
             self.status_message_changed.emit(
-                f"Source audio loaded: {audio_data.sample_rate}Hz, {duration_sec:.1f}s"
+                tr("status.source_audio_loaded", sample_rate=audio_data.sample_rate, duration=duration_sec)
             )
         elif video_path == self.current_edit_video_path:
             self.edit_audio_processed.emit(audio_data)
             duration_sec = audio_data.duration_ms / 1000.0
             self.status_message_changed.emit(
-                f"Edit audio loaded: {audio_data.sample_rate}Hz, {duration_sec:.1f}s"
+                tr("status.edit_audio_loaded", sample_rate=audio_data.sample_rate, duration=duration_sec)
             )
 
     @Slot(str, str)
@@ -373,14 +384,16 @@ class AppLogic(QObject):
         """Handle audio processing errors"""
         timeline_type = 'source' if video_path == self.current_source_video_path else 'edit'
         self.audio_processing_failed.emit(timeline_type, error)
-        self.status_message_changed.emit(f"Audio processing failed: {error}")
+        self.status_message_changed.emit(tr("status.audio_processing_failed", error=error))
 
     @Slot(str, str, int)
     def _on_audio_progress(self, video_path: str, stage: str, percentage: int):
         """Route audio processing progress to correct timeline"""
         timeline_type = 'source' if video_path == self.current_source_video_path else 'edit'
         self.audio_progress.emit(timeline_type, stage, percentage)
-        self.status_message_changed.emit(f"Processing audio: {stage} ({percentage}%)")
+        self.status_message_changed.emit(
+            tr("status.audio_processing_progress", stage=stage, percentage=percentage)
+        )
 
     # --- Device Output Methods ---
 
@@ -444,7 +457,7 @@ class AppLogic(QObject):
         self.timeline_data_changed.emit(self.data_manager.get_full_data())
         if not self.source_data_manager.main_df.empty:
             self.source_data_changed.emit(self.source_data_manager.get_full_data())
-        self.status_message_changed.emit(f"Calibration updated: R={r:.2f}, G={g:.2f}, B={b:.2f}")
+        self.status_message_changed.emit(tr("status.calibration_updated", r=r, g=g, b=b))
 
     def get_current_calibration(self):
         return color_calibration.get_gains()

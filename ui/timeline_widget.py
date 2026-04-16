@@ -15,6 +15,7 @@ from pyqtgraph import functions as fn
 from PySide6.QtCore import Qt, Signal, QThread, QObject, QRectF, QPointF, Signal as pyqtSignal, QTimer, Slot as pyqtSlot
 from PySide6.QtGui import QColor, QPolygonF, QPainterPath, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QLabel
+from core.i18n import tr
 
 # Local imports
 from core.color_calibration import color_calibration
@@ -571,8 +572,8 @@ class MarkerItem(pg.GraphicsObject):
             from PySide6.QtWidgets import QInputDialog
             new_text, ok = QInputDialog.getText(
                 self.timeline_widget,
-                "Edit Marker",
-                "Marker Name:",
+                tr("timeline.edit_marker_title"),
+                tr("dialog.color_frame.marker"),
                 text=self.marker_text
             )
 
@@ -916,7 +917,11 @@ class TimelineWidget(pg.PlotWidget):
         elif key == Qt.Key_M:
             # Add marker at current playback head - show input dialog
             from PySide6.QtWidgets import QInputDialog
-            name, ok = QInputDialog.getText(self, "Add Marker", "Marker Name:")
+            name, ok = QInputDialog.getText(
+                self,
+                tr("action.add_marker"),
+                tr("dialog.color_frame.marker"),
+            )
             if ok and name:
                 self.add_marker_requested.emit(current_time, name)
         # Per PRD 4.3: Selection & View shortcuts
@@ -1147,49 +1152,47 @@ class TimelineWidget(pg.PlotWidget):
 
     def show_offset_dialog(self):
         """Show offset dialog to get user input for offset amount."""
-        if self.timeline_type == 'source':
-            # Source timeline does not allow offset functionality
+        if self.timeline_type == "source":
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "提示", "源时间轴不支持偏移操作")
+
+            QMessageBox.information(self, tr("timeline.info_title"), tr("timeline.source_offset_not_supported"))
             return
-        
-        from PySide6.QtWidgets import QInputDialog
-        
+
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+
         start_ms, end_ms = self.get_selected_region()
         if abs(end_ms - start_ms) <= 1:
-            # If no selection, show message
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "提示", "请先选择一个时间区域")
+            QMessageBox.information(self, tr("timeline.info_title"), tr("timeline.select_region_first"))
             return
-        
-        # Get offset amount from user
+
         offset_ms, ok = QInputDialog.getDouble(
             self,
-            "时间偏移",
-            f"输入偏移量 (ms):\n当前选区: {start_ms:.1f} - {end_ms:.1f}",
-            0.0,  # Default value
-            -99999.0,  # Minimum value
-            999999.0,   # Maximum value
-            1  # Decimals
+            tr("timeline.offset_dialog_title"),
+            tr("timeline.offset_dialog_label", start=start_ms, end=end_ms),
+            0.0,
+            -99999.0,
+            999999.0,
+            1,
         )
-        
-        if ok and abs(offset_ms) > 0.01:  # If user confirmed and offset is meaningful
+
+        if ok and abs(offset_ms) > 0.01:
             self.offset_requested.emit(start_ms, end_ms, offset_ms)
 
     def apply_quick_offset(self, offset_ms):
         """Apply quick offset."""
-        if self.timeline_type == 'source':
-            # Source timeline does not allow offset functionality
+        if self.timeline_type == "source":
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "提示", "源时间轴不支持偏移操作")
+
+            QMessageBox.information(self, tr("timeline.info_title"), tr("timeline.source_offset_not_supported"))
             return
-        
+
         start_ms, end_ms = self.get_selected_region()
         if abs(end_ms - start_ms) > 1:
             self.offset_requested.emit(start_ms, end_ms, offset_ms)
         else:
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "提示", "请先选择一个时间区域")
+
+            QMessageBox.information(self, tr("timeline.info_title"), tr("timeline.select_region_first"))
 
     def update_zoom_label(self):
         if self.current_data.empty:
@@ -1287,40 +1290,40 @@ class TimelineWidget(pg.PlotWidget):
 
         # Standard edit actions
         if self.timeline_type == 'edit':
-            cut_action = menu.addAction("Cut")
+            cut_action = menu.addAction(tr("action.cut"))
             cut_action.triggered.connect(lambda: self._emit_cut(time_ms))
 
-        copy_action = menu.addAction("Copy")
+        copy_action = menu.addAction(tr("action.copy"))
         copy_action.triggered.connect(lambda: self._emit_copy(time_ms))
 
         if self.timeline_type == 'edit':
-            paste_action = menu.addAction("Paste")
+            paste_action = menu.addAction(tr("action.paste"))
             paste_action.triggered.connect(lambda: self.paste_requested.emit(time_ms, self.timeline_type))
 
             menu.addSeparator()
 
             # Insert actions
-            blackout_action = menu.addAction("Insert Blackout")
+            blackout_action = menu.addAction(tr("action.insert_blackout"))
             blackout_action.triggered.connect(lambda: self.insert_blackout_requested.emit(time_ms))
 
-            color_action = menu.addAction("Insert Color Frame...")
+            color_action = menu.addAction(tr("action.insert_color"))
             color_action.triggered.connect(lambda: self.insert_color_dialog_requested.emit(time_ms))
 
             menu.addSeparator()
 
             # Generate submenu
-            generate_menu = menu.addMenu("Generate")
-            breathing_action = generate_menu.addAction("Breathing Effect...")
+            generate_menu = menu.addMenu(tr("menu.generate"))
+            breathing_action = generate_menu.addAction(tr("action.generate_breathing"))
             breathing_action.triggered.connect(self._trigger_breathing)
-            rainbow_action = generate_menu.addAction("Rainbow Effect...")
+            rainbow_action = generate_menu.addAction(tr("action.generate_rainbow"))
             rainbow_action.triggered.connect(self._trigger_rainbow)
-            gradient_action = generate_menu.addAction("Gradient...")
+            gradient_action = generate_menu.addAction(tr("action.generate_gradient"))
             gradient_action.triggered.connect(self._trigger_gradient)
 
         menu.addSeparator()
 
         # Marker action
-        marker_action = menu.addAction("Add Marker...")
+        marker_action = menu.addAction(tr("action.add_marker"))
         marker_action.triggered.connect(lambda: self._add_marker_at(time_ms))
 
         menu.exec(global_pos)
@@ -1337,7 +1340,11 @@ class TimelineWidget(pg.PlotWidget):
 
     def _add_marker_at(self, time_ms: float):
         from PySide6.QtWidgets import QInputDialog
-        name, ok = QInputDialog.getText(self, "Add Marker", "Marker Name:")
+        name, ok = QInputDialog.getText(
+            self,
+            tr("action.add_marker"),
+            tr("dialog.color_frame.marker"),
+        )
         if ok and name:
             self.add_marker_requested.emit(time_ms, name)
 
@@ -1479,4 +1486,3 @@ class TimelineWidget(pg.PlotWidget):
         """Resize region by moving the start edge."""
         _, end = self.region_item.getRegion()
         self.region_item.setRegion([time_ms, end])
-

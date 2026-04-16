@@ -2,7 +2,7 @@ import sys
 import os
 import pandas as pd
 from PySide6.QtCore import Signal, Slot, Qt, QTimer, QSettings
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QFileDialog, QMessageBox, QInputDialog, QSplitter,
@@ -17,6 +17,7 @@ from .audio_controls_widget import AudioControlsWidget
 from .audio_settings_dialog import AudioSettingsDialog
 from .video_player_widget import VideoPlayerWidget
 from .device_output_dock import DeviceOutputWidget
+from core.i18n import get_language, set_language, tr
 
 class MainWindow(QMainWindow):
     # Signals to be connected to the AppLogic controller
@@ -40,7 +41,8 @@ class MainWindow(QMainWindow):
     def __init__(self, app_logic, parent=None):
         super().__init__(parent)
         self.logic = app_logic
-        self.setWindowTitle("LumaFlow")
+        self.current_language = get_language()
+        self.setWindowTitle(tr("app.title"))
         self.setGeometry(100, 100, 1600, 900) # [FIXED] Corrected window height
 
         self.should_auto_zoom = True
@@ -82,7 +84,7 @@ class MainWindow(QMainWindow):
         self.edit_audio_track = self.edit_timeline_group.audio_track
 
         # --- Top Dock: Source Monitor ---
-        self.source_dock = QDockWidget("Source Monitor", self)
+        self.source_dock = QDockWidget(tr("dock.source_monitor"), self)
         self.source_dock.setObjectName("SourceMonitorDock")
         self.source_timeline_group = TimelineGroupWidget(
             timeline_type='source',
@@ -97,14 +99,14 @@ class MainWindow(QMainWindow):
         self.source_audio_track = self.source_timeline_group.audio_track
 
         # --- Bottom Dock: Data Table ---
-        self.data_table_dock = QDockWidget("Data Table", self)
+        self.data_table_dock = QDockWidget(tr("dock.data_table"), self)
         self.data_table_dock.setObjectName("DataTableDock")
         self.data_table = DataTableWidget()
         self.data_table_dock.setWidget(self.data_table)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.data_table_dock)
 
         # --- Left Top Dock: Source Preview (Video) ---
-        self.source_preview_dock = QDockWidget("Source Preview", self)
+        self.source_preview_dock = QDockWidget(tr("dock.source_preview"), self)
         self.source_preview_dock.setObjectName("SourcePreviewDock")
         self.source_preview_widget = VideoPlayerWidget()
         self.source_preview_dock.setWidget(self.source_preview_widget)
@@ -112,7 +114,7 @@ class MainWindow(QMainWindow):
         self.source_preview_dock.hide()  # 默认隐藏 source 预览
 
         # --- Left Bottom Dock: Program Preview (Video) ---
-        self.edit_preview_dock = QDockWidget("Program Preview", self)
+        self.edit_preview_dock = QDockWidget(tr("dock.program_preview"), self)
         self.edit_preview_dock.setObjectName("ProgramPreviewDock")
         self.edit_preview_widget = VideoPlayerWidget()
         self.edit_preview_dock.setWidget(self.edit_preview_widget)
@@ -127,7 +129,7 @@ class MainWindow(QMainWindow):
         self.audio_settings_dialog = None
 
         # --- Right Dock: Device Output ---
-        self.device_output_dock = QDockWidget("Device Output", self)
+        self.device_output_dock = QDockWidget(tr("dock.device_output"), self)
         self.device_output_dock.setObjectName("DeviceOutputDock")
         self.device_output_widget = DeviceOutputWidget()
         self.device_output_dock.setWidget(self.device_output_widget)
@@ -156,7 +158,7 @@ class MainWindow(QMainWindow):
 
         self.status_bar.addPermanentWidget(self.audio_progress_label)
         self.status_bar.addPermanentWidget(self.audio_progress_bar)
-        self.status_bar.showMessage("Ready")
+        self.status_bar.showMessage(tr("app.ready"))
 
         # Apply dark theme by default on startup
         QTimer.singleShot(0, lambda: self.set_theme("dark_theme"))
@@ -167,7 +169,7 @@ class MainWindow(QMainWindow):
     # [MODIFIED] The toolbar is now the primary hub for common actions.
     def create_tool_bar(self):
         """Creates and configures the main application toolbar with logical groupings."""
-        tool_bar = QToolBar("Main ToolBar")
+        tool_bar = QToolBar(tr("toolbar.main"))
         tool_bar.setObjectName("MainToolBar")  # Needed for saveState/restoreState
         tool_bar.setMovable(False)
 
@@ -209,79 +211,89 @@ class MainWindow(QMainWindow):
 
     # [MODIFIED] Added more standard icons to actions for a richer toolbar experience.
     def create_actions(self):
-        # File actions
-        self.new_edit_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon), "&New Edit...", self)
+        self.new_edit_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon), tr("action.new_edit"), self)
         self.new_edit_action.setShortcut(QKeySequence.New)
-        self.open_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon), "&Open Edit...", self)
+        self.open_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon), tr("action.open_edit"), self)
         self.open_action.setShortcut(QKeySequence.Open)
-        self.open_source_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DirLinkIcon), "Open &Source...", self)
-        self.save_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), "&Save", self)
+        self.open_source_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DirLinkIcon), tr("action.open_source"), self)
+        self.save_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), tr("action.save"), self)
         self.save_action.setShortcut(QKeySequence.Save)
-        self.save_as_action = QAction("Save &As...", self)
+        self.save_as_action = QAction(tr("action.save_as"), self)
         self.save_as_action.setShortcut(QKeySequence.SaveAs)
-        self.exit_action = QAction("E&xit", self)
+        self.exit_action = QAction(tr("action.exit"), self)
         self.exit_action.setShortcut(QKeySequence.Quit)
 
-        # Edit actions
-        self.undo_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowLeft), "&Undo", self)
+        self.undo_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowLeft), tr("action.undo"), self)
         self.undo_action.setShortcut(QKeySequence.Undo)
-        self.redo_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowRight), "&Redo", self)
+        self.redo_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowRight), tr("action.redo"), self)
         self.redo_action.setShortcut(QKeySequence.Redo)
-        self.cut_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ToolBarHorizontalExtensionButton), "Cu&t", self)
+        self.cut_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ToolBarHorizontalExtensionButton), tr("action.cut"), self)
         self.cut_action.setShortcut(QKeySequence.Cut)
-        self.copy_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileLinkIcon), "&Copy", self)
+        self.copy_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileLinkIcon), tr("action.copy"), self)
         self.copy_action.setShortcut(QKeySequence.Copy)
-        self.paste_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView), "&Paste", self)
+        self.paste_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView), tr("action.paste"), self)
         self.paste_action.setShortcut(QKeySequence.Paste)
-        self.delete_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon), "&Delete", self)
+        self.delete_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon), tr("action.delete"), self)
         self.delete_action.setShortcut(QKeySequence.Delete)
 
-        # View actions
-        self.dark_theme_action = QAction("Dark Theme", self)
-        self.light_theme_action = QAction("Light Theme", self)
-        self.calibration_action = QAction("RGB Calibration...", self)
-        self.fit_view_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), "Fit to View", self)
+        self.dark_theme_action = QAction(tr("action.dark_theme"), self)
+        self.light_theme_action = QAction(tr("action.light_theme"), self)
+        self.calibration_action = QAction(tr("action.rgb_calibration"), self)
+        self.fit_view_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), tr("action.fit_to_view"), self)
         self.fit_view_action.setShortcut("F")
 
-        # Timeline actions
-        self.add_marker_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "Add Marker", self)
+        self.add_marker_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay), tr("action.add_marker"), self)
         self.add_marker_action.setShortcut("M")
-        self.insert_blackout_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton), "Insert Blackout Frame", self)
+        self.insert_blackout_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton), tr("action.insert_blackout"), self)
         self.insert_blackout_action.setShortcut("B")
-        self.insert_color_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton), "Insert Color Frame", self)
+        self.insert_color_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton), tr("action.insert_color"), self)
         self.insert_color_action.setShortcut("I")
-
-        # Per PRD 5.1: Edit Frame action
-        self.edit_frame_action = QAction("Edit Frame", self)
+        self.edit_frame_action = QAction(tr("action.edit_frame"), self)
         self.edit_frame_action.setShortcut("E")
 
-        # Generate actions (remain in menu as they are less frequent)
-        self.generate_breathing_action = QAction("Generate Breathing Effect", self)
-        self.generate_rainbow_action = QAction("Generate Rainbow Effect", self)
-        self.generate_gradient_action = QAction("Generate Gradient", self)
+        self.generate_breathing_action = QAction(tr("action.generate_breathing"), self)
+        self.generate_rainbow_action = QAction(tr("action.generate_rainbow"), self)
+        self.generate_gradient_action = QAction(tr("action.generate_gradient"), self)
 
-        # Offset actions (remain in menu)
-        self.offset_dialog_action = QAction("Specify Offset...", self)
+        self.offset_dialog_action = QAction(tr("action.specify_offset"), self)
         self.offset_dialog_action.setShortcut("Shift+M")
-        self.offset_left_action = QAction("Offset Left 100ms", self)
+        self.offset_left_action = QAction(tr("action.offset_left"), self)
         self.offset_left_action.setShortcut("Ctrl+[")
-        self.offset_right_action = QAction("Offset Right 100ms", self)
+        self.offset_right_action = QAction(tr("action.offset_right"), self)
         self.offset_right_action.setShortcut("Ctrl+]")
 
-        # Video actions
-        self.import_source_video_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton), "Import Source Video...", self)
-        self.import_edit_video_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton), "Import Edit Video...", self)
-        self.sync_playback_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "Sync Playback", self)
+        self.import_source_video_action = QAction(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton),
+            tr("action.import_source_video"),
+            self,
+        )
+        self.import_edit_video_action = QAction(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton),
+            tr("action.import_edit_video"),
+            self,
+        )
+        self.sync_playback_action = QAction(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay),
+            tr("action.sync_playback"),
+            self,
+        )
         self.sync_playback_action.setCheckable(True)
         self.sync_playback_action.setChecked(True)
 
-        # Help actions
-        self.about_action = QAction("About", self)
+        self.about_action = QAction(tr("action.about"), self)
         self.about_action.triggered.connect(self.on_about)
+
+        self.language_action_group = QActionGroup(self)
+        self.language_action_group.setExclusive(True)
+        self.language_zh_cn_action = QAction(tr("language.zh-CN"), self, checkable=True)
+        self.language_en_us_action = QAction(tr("language.en-US"), self, checkable=True)
+        self.language_action_group.addAction(self.language_zh_cn_action)
+        self.language_action_group.addAction(self.language_en_us_action)
+        (self.language_zh_cn_action if self.current_language == "zh-CN" else self.language_en_us_action).setChecked(True)
 
     def create_menus(self):
         # File menu
-        file_menu = self.menuBar().addMenu("&File")
+        file_menu = self.menuBar().addMenu(tr("menu.file"))
         file_menu.addAction(self.new_edit_action)
         file_menu.addAction(self.open_action)
         file_menu.addAction(self.open_source_action)
@@ -294,7 +306,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.exit_action)
 
         # Edit menu
-        edit_menu = self.menuBar().addMenu("&Edit")
+        edit_menu = self.menuBar().addMenu(tr("menu.edit"))
         edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
         edit_menu.addSeparator()
@@ -304,12 +316,17 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.delete_action)
 
         # View menu - Per PRD 2.3: Toggle actions for all Docks
-        view_menu = self.menuBar().addMenu("&View")
+        view_menu = self.menuBar().addMenu(tr("menu.view"))
         view_menu.addAction(self.dark_theme_action)
         view_menu.addAction(self.light_theme_action)
         view_menu.addSeparator()
         view_menu.addAction(self.calibration_action)
         view_menu.addAction(self.fit_view_action)
+        view_menu.addSeparator()
+
+        language_menu = view_menu.addMenu(tr("menu.language"))
+        language_menu.addAction(self.language_zh_cn_action)
+        language_menu.addAction(self.language_en_us_action)
         view_menu.addSeparator()
 
         # Dock toggle actions
@@ -320,29 +337,29 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.device_output_dock.toggleViewAction())
 
         # Timeline menu
-        timeline_menu = self.menuBar().addMenu("&Timeline")
+        timeline_menu = self.menuBar().addMenu(tr("menu.timeline"))
         timeline_menu.addAction(self.add_marker_action)
         timeline_menu.addAction(self.edit_frame_action)  # Per PRD 5.1
-        insert_menu = timeline_menu.addMenu("Insert")
+        insert_menu = timeline_menu.addMenu(tr("menu.insert"))
         insert_menu.addAction(self.insert_blackout_action)
         insert_menu.addAction(self.insert_color_action)
-        generate_menu = timeline_menu.addMenu("Generate")
+        generate_menu = timeline_menu.addMenu(tr("menu.generate"))
         generate_menu.addAction(self.generate_breathing_action)
         generate_menu.addAction(self.generate_rainbow_action)
         generate_menu.addAction(self.generate_gradient_action)
         timeline_menu.addSeparator()
-        offset_menu = timeline_menu.addMenu("Offset")
+        offset_menu = timeline_menu.addMenu(tr("menu.offset"))
         offset_menu.addAction(self.offset_dialog_action)
         offset_menu.addAction(self.offset_left_action)
         offset_menu.addAction(self.offset_right_action)
 
         # Audio menu
-        audio_menu = self.menuBar().addMenu("Audio")
-        self.audio_settings_action = QAction("Audio Visualization Settings...", self)
+        audio_menu = self.menuBar().addMenu(tr("menu.audio"))
+        self.audio_settings_action = QAction(tr("action.audio_visualization_settings"), self)
         audio_menu.addAction(self.audio_settings_action)
 
         # Help menu
-        help_menu = self.menuBar().addMenu("Help")
+        help_menu = self.menuBar().addMenu(tr("menu.help"))
         help_menu.addAction(self.about_action)
 
     def connect_signals(self):
@@ -386,6 +403,8 @@ class MainWindow(QMainWindow):
 
         # Audio settings action
         self.audio_settings_action.triggered.connect(self.on_open_audio_settings)
+        self.language_zh_cn_action.triggered.connect(lambda: self.on_change_language("zh-CN"))
+        self.language_en_us_action.triggered.connect(lambda: self.on_change_language("en-US"))
 
         # Timeline group signals
         self.edit_timeline_group.region_selected.connect(self.on_edit_region_selected)
@@ -468,29 +487,37 @@ class MainWindow(QMainWindow):
     # --- Action Handlers ---
 
     def on_open_clicked(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open Edit CSV File", "", "CSV Files (*.csv)")
+        file_path, _ = QFileDialog.getOpenFileName(self, tr("action.open_edit"), "", tr("main.file_filter_edit"))
         if file_path:
             self.open_requested.emit(file_path)
 
     def on_open_source_clicked(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open Source CSV File", "", "CSV Files (*.csv)")
+        file_path, _ = QFileDialog.getOpenFileName(self, tr("action.open_source"), "", tr("main.file_filter_edit"))
         if file_path:
             self.open_source_requested.emit(file_path)
 
     def on_save_as_clicked(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, "Save CSV File", "", "CSV Files (*.csv)")
+        file_path, _ = QFileDialog.getSaveFileName(self, tr("main.save_as_title"), "", tr("main.file_filter_edit"))
         if file_path:
             self.save_requested.emit(file_path)
 
     def on_new_edit(self):
-        duration_sec, ok = QInputDialog.getDouble(self, "New Edit", "Enter total duration (seconds):", 9600, 1.0, 10000.0, 2)
+        duration_sec, ok = QInputDialog.getDouble(
+            self,
+            tr("main.new_edit_title"),
+            tr("main.new_edit_label"),
+            9600,
+            1.0,
+            10000.0,
+            2,
+        )
         if ok and duration_sec > 0:
             self.new_edit_requested.emit(duration_sec)
 
     def on_add_marker(self):
         active_timeline = self.get_active_timeline()
         if not active_timeline: return
-        name, ok = QInputDialog.getText(self, "Add Marker", "Marker Name:")
+        name, ok = QInputDialog.getText(self, tr("action.add_marker"), tr("dialog.color_frame.marker"))
         if ok and name:
             self.add_marker_requested.emit(active_timeline.get_playback_head_time(), name)
 
@@ -519,14 +546,14 @@ class MainWindow(QMainWindow):
         3. On Save: Execute UpdateFrameCommand
         """
         if self.edit_timeline.timeline_type != 'edit':
-            self.set_status_message("Edit Frame is only available on the edit timeline.")
+            self.set_status_message(tr("status.edit_frame_only_edit_timeline"))
             return
 
         playhead_time = self.edit_timeline.get_playback_head_time()
         frame_row, frame_time = self.edit_timeline.get_frame_at_time(playhead_time, tolerance_ms=50.0)
 
         if frame_row is None:
-            self.set_status_message(f"No frame found within 50ms of playhead ({playhead_time:.1f}ms)")
+            self.set_status_message(tr("status.no_frame_near_playhead", time=playhead_time))
             return
 
         # Pre-fill dialog with existing frame data
@@ -545,13 +572,13 @@ class MainWindow(QMainWindow):
 
     def on_generate_breathing(self):
         params_config = [
-            {'name': 'duration', 'label': 'Duration (ms)', 'type': 'float', 'default': 5000.0},
-            {'name': 'interval', 'label': 'Interval (ms)', 'type': 'float', 'default': 100.0},
-            {'name': 'color', 'label': 'Color', 'type': 'color', 'default': '#FFFFFF'},
-            {'name': 'min_bright', 'label': 'Min Brightness', 'type': 'float', 'default': 0.1},
-            {'name': 'max_bright', 'label': 'Max Brightness', 'type': 'float', 'default': 1.0},
+            {'name': 'duration', 'label': tr('dialog.gradient.duration'), 'type': 'float', 'default': 5000.0},
+            {'name': 'interval', 'label': tr('dialog.gradient.interval'), 'type': 'float', 'default': 100.0},
+            {'name': 'color', 'label': tr('dialog.color_frame.group_color'), 'type': 'color', 'default': '#FFFFFF'},
+            {'name': 'min_bright', 'label': tr('dialog.effect.min_brightness'), 'type': 'float', 'default': 0.1},
+            {'name': 'max_bright', 'label': tr('dialog.effect.max_brightness'), 'type': 'float', 'default': 1.0},
         ]
-        dialog = EffectDialog("Generate Breathing Effect", params_config, self)
+        dialog = EffectDialog(tr("action.generate_breathing"), params_config, self)
         if dialog.exec():
             params = dialog.get_params()
             params['at_ms'] = self.edit_timeline.get_playback_head_time()
@@ -559,11 +586,11 @@ class MainWindow(QMainWindow):
 
     def on_generate_rainbow(self):
         params_config = [
-            {'name': 'duration', 'label': 'Duration (ms)', 'type': 'float', 'default': 10000.0},
-            {'name': 'interval', 'label': 'Interval (ms)', 'type': 'float', 'default': 100.0},
-            {'name': 'speed', 'label': 'Speed', 'type': 'float', 'default': 0.1},
+            {'name': 'duration', 'label': tr('dialog.gradient.duration'), 'type': 'float', 'default': 10000.0},
+            {'name': 'interval', 'label': tr('dialog.gradient.interval'), 'type': 'float', 'default': 100.0},
+            {'name': 'speed', 'label': tr('dialog.effect.speed'), 'type': 'float', 'default': 0.1},
         ]
-        dialog = EffectDialog("Generate Rainbow Effect", params_config, self)
+        dialog = EffectDialog(tr("action.generate_rainbow"), params_config, self)
         if dialog.exec():
             params = dialog.get_params()
             params['at_ms'] = self.edit_timeline.get_playback_head_time()
@@ -573,7 +600,7 @@ class MainWindow(QMainWindow):
         from ui.dialogs import GradientDialog
         start_ms, end_ms = self.edit_timeline.get_selected_region()
         if abs(end_ms - start_ms) <= 1:
-            self.set_status_message("请先选择时间区域")
+            self.set_status_message(tr("status.no_region_selected"))
             return
 
         dialog = GradientDialog(self, start_ms, end_ms, self.logic.data_manager)
@@ -636,7 +663,7 @@ class MainWindow(QMainWindow):
             start_ms, end_ms = active_timeline.get_selected_region()
             self.logic.cut_selection(start_ms, end_ms)
         else:
-            self.set_status_message("Cut is not available on the source timeline.")
+            self.set_status_message(tr("status.cut_not_available_source"))
 
     def on_copy(self):
         active_timeline = self.get_active_timeline()
@@ -648,7 +675,7 @@ class MainWindow(QMainWindow):
         if active_timeline == self.edit_timeline:
             self.logic.paste_selection(active_timeline.get_playback_head_time())
         else:
-            self.set_status_message("Paste is not available on the source timeline.")
+            self.set_status_message(tr("status.paste_not_available_source"))
 
     def on_delete(self):
         active_timeline = self.get_active_timeline()
@@ -656,39 +683,39 @@ class MainWindow(QMainWindow):
             start_ms, end_ms = active_timeline.get_selected_region()
             self.logic.delete_selection(start_ms, end_ms)
         else:
-            self.set_status_message("Delete is not available on the source timeline.")
+            self.set_status_message(tr("status.delete_not_available_source"))
 
     def on_import_source_video(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Source Video",
+            tr("main.import_source_video"),
             "",
-            "Video Files (*.mp4 *.avi *.mov *.mkv *.wmv *.flv *.webm *.m4v)"
+            tr("main.file_filter_video")
         )
         if file_path:
             self.source_preview_widget.load_video(file_path)
             self.logic.load_video_audio(file_path, 'source')
-            self.set_status_message(f"Source video loaded: {os.path.basename(file_path)}")
+            self.set_status_message(tr("status.source_video_loaded", name=os.path.basename(file_path)))
 
     def on_import_edit_video(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Edit Video",
+            tr("main.import_edit_video"),
             "",
-            "Video Files (*.mp4 *.avi *.mov *.mkv *.wmv *.flv *.webm *.m4v)"
+            tr("main.file_filter_video")
         )
         if file_path:
             self.edit_preview_widget.load_video(file_path)
             self.logic.load_video_audio(file_path, 'edit')
-            self.set_status_message(f"Edit video loaded: {os.path.basename(file_path)}")
+            self.set_status_message(tr("status.edit_video_loaded", name=os.path.basename(file_path)))
 
     def on_toggle_sync_playback(self):
         # This would contain the logic to sync playback between timelines and video
         # For now, just show if it's enabled in the status bar
         if self.sync_playback_action.isChecked():
-            self.set_status_message("Video playback synchronization enabled")
+            self.set_status_message(tr("status.sync_enabled"))
         else:
-            self.set_status_message("Video playback synchronization disabled")
+            self.set_status_message(tr("status.sync_disabled"))
 
     def sync_source_video_to_timeline(self, time_ms: float):
         """Synchronize source video playback to timeline position"""
@@ -697,7 +724,7 @@ class MainWindow(QMainWindow):
                 self.syncing_source_video_to_timeline = True
                 self.source_preview_widget.set_playback_position(int(time_ms))
             except Exception as e:
-                self.set_status_message(f"Error syncing source video: {str(e)}")
+                self.set_status_message(tr("status.sync_source_video_error", error=str(e)))
             finally:
                 self.syncing_source_video_to_timeline = False
 
@@ -708,7 +735,7 @@ class MainWindow(QMainWindow):
                 self.syncing_edit_video_to_timeline = True
                 self.edit_preview_widget.set_playback_position(int(time_ms))
             except Exception as e:
-                self.set_status_message(f"Error syncing edit video: {str(e)}")
+                self.set_status_message(tr("status.sync_edit_video_error", error=str(e)))
             finally:
                 self.syncing_edit_video_to_timeline = False
 
@@ -721,7 +748,7 @@ class MainWindow(QMainWindow):
                 self.source_timeline_group.set_playback_head_time(time_ms)
                 self.source_timeline.playback_head.blockSignals(False)
             except Exception as e:
-                self.set_status_message(f"Error syncing source timeline: {str(e)}")
+                self.set_status_message(tr("status.sync_source_timeline_error", error=str(e)))
             finally:
                 self.syncing_timeline_to_source_video = False
 
@@ -734,7 +761,7 @@ class MainWindow(QMainWindow):
                 self.edit_timeline_group.set_playback_head_time(time_ms)
                 self.edit_timeline.playback_head.blockSignals(False)
             except Exception as e:
-                self.set_status_message(f"Error syncing edit timeline: {str(e)}")
+                self.set_status_message(tr("status.sync_edit_timeline_error", error=str(e)))
             finally:
                 self.syncing_timeline_to_edit_video = False
 
@@ -808,7 +835,7 @@ class MainWindow(QMainWindow):
                 style_sheet = f.read()
                 QApplication.instance().setStyleSheet(style_sheet)
         except FileNotFoundError:
-            self.set_status_message(f"Error: Stylesheet '{theme_name}.qss' not found.")
+            self.set_status_message(tr("status.stylesheet_not_found", name=theme_name))
 
     def closeEvent(self, event):
         # Save window geometry and state per PRD 2.3
@@ -884,21 +911,13 @@ class MainWindow(QMainWindow):
             # Trigger reprocessing
             reply = QMessageBox.question(
                 self,
-                "重新处理音频",
-                "更改频率范围需要重新处理音频，这可能需要一些时间。\n是否继续？",
+                tr("audio_settings.reprocess_title"),
+                tr("audio_settings.reprocess_message"),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
             if reply == QMessageBox.Yes:
-                # 获取当前声道模式
-                mode = self.source_audio_controls.channel_combo.currentText()
-                mode_map = {
-                    "单声道": "mono",
-                    "立体声": "stereo",
-                    "左声道": "left",
-                    "右声道": "right"
-                }
-                mode_code = mode_map.get(mode, "stereo")
+                mode_code = self.source_audio_controls.channel_combo.currentData() or "stereo"
                 self.logic.audio_manager.extract_audio(self.logic.current_source_video_path, mode_code)
 
     def _on_edit_audio_params_changed(self, timeline_type: str, params: dict):
@@ -909,21 +928,13 @@ class MainWindow(QMainWindow):
             # Trigger reprocessing
             reply = QMessageBox.question(
                 self,
-                "重新处理音频",
-                "更改频率范围需要重新处理音频，这可能需要一些时间。\n是否继续？",
+                tr("audio_settings.reprocess_title"),
+                tr("audio_settings.reprocess_message"),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
             if reply == QMessageBox.Yes:
-                # 获取当前声道模式
-                mode = self.edit_audio_controls.channel_combo.currentText()
-                mode_map = {
-                    "单声道": "mono",
-                    "立体声": "stereo",
-                    "左声道": "left",
-                    "右声道": "right"
-                }
-                mode_code = mode_map.get(mode, "stereo")
+                mode_code = self.edit_audio_controls.channel_combo.currentData() or "stereo"
                 self.logic.audio_manager.extract_audio(self.logic.current_edit_video_path, mode_code)
 
     def _on_source_audio_data_ready(self, audio_data):
@@ -934,7 +945,7 @@ class MainWindow(QMainWindow):
         self.source_audio_controls.clear_progress()
         self.source_timeline_group.set_audio_data(audio_data)
         duration_sec = audio_data.duration_ms / 1000.0
-        info = f"音频已加载 ({audio_data.sample_rate}Hz, {duration_sec:.1f}s)"
+        info = tr("audio_controls.loaded_with_info", sample_rate=audio_data.sample_rate, duration=duration_sec)
         self.source_audio_controls.set_audio_loaded(True, info)
 
     def _on_edit_audio_data_ready(self, audio_data):
@@ -945,7 +956,7 @@ class MainWindow(QMainWindow):
         self.edit_audio_controls.clear_progress()
         self.edit_timeline_group.set_audio_data(audio_data)
         duration_sec = audio_data.duration_ms / 1000.0
-        info = f"音频已加载 ({audio_data.sample_rate}Hz, {duration_sec:.1f}s)"
+        info = tr("audio_controls.loaded_with_info", sample_rate=audio_data.sample_rate, duration=duration_sec)
         self.edit_audio_controls.set_audio_loaded(True, info)
 
     def _on_audio_processing_failed(self, timeline_type: str, error: str):
@@ -963,7 +974,7 @@ class MainWindow(QMainWindow):
     def _on_audio_progress(self, timeline_type: str, stage: str, percentage: int):
         """Handle audio processing progress updates"""
         # Show progress in main window status bar
-        self.audio_progress_label.setText(f"{stage} ({percentage}%)")
+        self.audio_progress_label.setText(tr("audio_controls.progress", stage=stage, percentage=percentage))
         self.audio_progress_bar.setValue(percentage)
         self.audio_progress_bar.setVisible(True)
 
@@ -974,6 +985,28 @@ class MainWindow(QMainWindow):
         self.audio_settings_dialog.show()
         self.audio_settings_dialog.raise_()
         self.audio_settings_dialog.activateWindow()
+
+    def on_change_language(self, language_code: str):
+        previous_language = self.current_language
+        selected_language = set_language(language_code)
+        self.current_language = selected_language
+
+        if selected_language == "zh-CN":
+            self.language_zh_cn_action.setChecked(True)
+        else:
+            self.language_en_us_action.setChecked(True)
+
+        if selected_language == previous_language:
+            return
+
+        QMessageBox.information(
+            self,
+            tr("app.language_restart_title"),
+            tr(
+                "app.language_restart_message",
+                language_name=tr(f"language.{selected_language}"),
+            ),
+        )
 
     # --- 播放互斥控制 ---
     def _on_source_playback_started(self):

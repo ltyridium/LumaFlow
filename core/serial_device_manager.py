@@ -19,8 +19,16 @@ class SerialDeviceManager(QObject):
         self.offset_ms = 0
 
     def get_ports(self):
-        """Get list of available serial ports."""
-        return [port.device for port in serial.tools.list_ports.comports()]
+        """Get list of available serial ports with descriptions."""
+        ports_info = []
+        for port in serial.tools.list_ports.comports():
+            port_info = {
+                'device': port.device,
+                'description': port.description or 'Unknown Device',
+                'manufacturer': port.manufacturer or ''
+            }
+            ports_info.append(port_info)
+        return ports_info
 
     def connect(self, port, baud_rate=512000):
         """Connect to the specified serial port."""
