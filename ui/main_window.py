@@ -423,15 +423,16 @@ class MainWindow(QMainWindow):
         self.logic.serial_connection_changed.connect(
             lambda connected, msg: self.device_output_widget.serial_panel.set_connected(connected)
         )
-        self.logic.keyboard_connection_changed.connect(
-            lambda connected, msg: self.device_output_widget.keyboard_panel.set_connected(connected)
-        )
         self.logic.serial_frame_sent.connect(
             self.device_output_widget.serial_panel.update_frames_sent
         )
-        self.logic.keyboard_frame_sent.connect(
-            self.device_output_widget.keyboard_panel.update_frames_sent
+        self.logic.serial_auth_status_changed.connect(
+            self.device_output_widget.serial_panel.set_auth_status
         )
+        self.logic.serial_auth_lic_info_changed.connect(
+            self.device_output_widget.serial_panel.set_lic_info
+        )
+        self.device_output_widget.serial_panel.set_lic_info(self.logic.get_serial_auth_lic_info())
 
         # Connect UI requests to the logic controller
         self.add_marker_requested.connect(self.logic.add_marker)
@@ -987,28 +988,68 @@ class MainWindow(QMainWindow):
     def _connect_device_output_signals(self):
         """Connect device output panel signals to logic."""
         serial_panel = self.device_output_widget.serial_panel
-        keyboard_panel = self.device_output_widget.keyboard_panel
 
         # Serial panel signals
         serial_panel.refresh_requested.connect(self._refresh_serial_ports)
         serial_panel.connect_requested.connect(self.logic.connect_serial)
         serial_panel.disconnect_requested.connect(self.logic.disconnect_serial)
-        serial_panel.offset_changed.connect(self.logic.set_serial_offset)
-
-        # Keyboard panel signals
-        keyboard_panel.connect_requested.connect(self.logic.connect_keyboard)
-        keyboard_panel.disconnect_requested.connect(self.logic.disconnect_keyboard)
-        keyboard_panel.offset_changed.connect(self.logic.set_keyboard_offset)
-        keyboard_panel.target_keyboard_changed.connect(self.logic.set_keyboard_target_keyboard)
-        keyboard_panel.target_lightstrip_changed.connect(self.logic.set_keyboard_target_lightstrip)
-        keyboard_panel.channel_changed.connect(self.logic.set_keyboard_channel)
-        keyboard_panel.device_path_changed.connect(self.logic.set_keyboard_device_path)
-
-        # Set default device path
-        keyboard_panel.set_device_path(self.logic.keyboard_device.DEFAULT_DEVICE_PATH)
+        serial_panel.offset_changed.connect(self._on_serial_offset_changed)
+        serial_panel.auth_lic_changed.connect(self._on_serial_auth_lic_changed)
+        self._restore_device_output_offsets()
 
         # Initial port list
         self._refresh_serial_ports()
+
+    def _coerce_offset(self, value, fallback):
+        try:
+            offset = int(value)
+        except (TypeError, ValueError):
+            offset = fallback
+        return max(-1000, min(1000, offset))
+
+    def _restore_device_output_offsets(self):
+        """Restore device output settings from QSettings and sync UI + logic."""
+        settings = QSettings("LumaFlow", "LumaFlow")
+
+        serial_fallback = 200
+        serial_offset = self._coerce_offset(settings.value("device_output/serial_offset_ms"), serial_fallback)
+        serial_auth_lic = settings.value("device_output/serial_auth_lic", "", str)
+
+        serial_panel = self.device_output_widget.serial_panel
+
+        serial_panel.offset_spin.blockSignals(True)
+        serial_panel.offset_spin.setValue(serial_offset)
+        serial_panel.offset_spin.blockSignals(False)
+        serial_panel.auth_lic_edit.blockSignals(True)
+        serial_panel.set_auth_lic(serial_auth_lic)
+        serial_panel.auth_lic_edit.blockSignals(False)
+
+        serial_panel.set_default_offset(serial_offset)
+
+        self.logic.set_serial_offset(serial_offset)
+        self.logic.set_serial_auth_lic(serial_auth_lic)
+        self._persist_device_output_settings(serial_offset=serial_offset, serial_auth_lic=serial_auth_lic)
+        serial_panel.set_auth_status("Not Sent")
+        serial_panel.set_lic_info(self.logic.get_serial_auth_lic_info())
+
+    def _persist_device_output_settings(self, serial_offset=None, serial_auth_lic=None):
+        settings = QSettings("LumaFlow", "LumaFlow")
+        if serial_offset is None:
+            serial_offset = self.logic.serial_device.get_offset()
+        if serial_auth_lic is None:
+            serial_auth_lic = self.logic.serial_auth_lic
+        settings.setValue("device_output/serial_offset_ms", int(serial_offset))
+        settings.setValue("device_output/serial_auth_lic", serial_auth_lic)
+
+    @Slot(int)
+    def _on_serial_offset_changed(self, offset_ms):
+        self.logic.set_serial_offset(offset_ms)
+        self._persist_device_output_settings(serial_offset=offset_ms)
+
+    @Slot(str)
+    def _on_serial_auth_lic_changed(self, lic_text):
+        self.logic.set_serial_auth_lic(lic_text)
+        self._persist_device_output_settings(serial_auth_lic=lic_text)
 
     def on_about(self):
         from .dialogs import AboutDialog

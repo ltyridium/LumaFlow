@@ -1,10 +1,10 @@
-# file: ui/vlc_video_widget.py
+﻿# file: ui/vlc_video_widget.py
 
 import sys
 import os
 import time
 from urllib.parse import unquote
-from PySide6.QtCore import Qt, Signal, Slot, QTimer
+from PySide6.QtCore import Qt, Signal, Slot, QTimer, QEvent
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QFrame, QStyle, QSizePolicy
 
 try:
@@ -13,14 +13,41 @@ try:
 except ImportError:
     vlc_available = False
 
+
+class _FullScreenVideoWindow(QWidget):
+    """Temporary fullscreen host window for the video frame."""
+
+    closed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Window | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.setStyleSheet("background-color: black;")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+
+    def set_video_widget(self, video_widget: QWidget):
+        self._layout.addWidget(video_widget)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Escape, Qt.Key_F11):
+            self.close()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+
 class VideoPlayerWidget(QWidget):
     """A video player widget using the python-vlc library."""
 
     position_changed_manually = Signal(int)
     position_changed_during_playback = Signal(int)
-    playback_started = Signal()  # 新增：播放开始信号
-    playback_stopped = Signal()  # 新增：播放停止信号
-
+    playback_started = Signal()
+    playback_stopped = Signal()
     # Internal signals for thread-safe VLC event handling
     _vlc_paused_signal = Signal()
     _vlc_playing_signal = Signal()
@@ -31,6 +58,9 @@ class VideoPlayerWidget(QWidget):
         self._is_scrubbing = False
         self._is_playing = False
         self._auto_pause_on_play = False
+        self._is_fullscreen = False
+        self._fullscreen_window = None
+        self._single_click_delay_ms = 220
 
         # Master clock variables for smooth playback
         self.current_time_ms = 0
@@ -40,7 +70,7 @@ class VideoPlayerWidget(QWidget):
         self.vlc_read_counter = 0  # counter for VLC sync (read every 10 ticks = 100ms)
 
         self.last_reported_vlc_time = -1
-        self.smooth_drift = 0  # 平滑后的偏移量
+        self.smooth_drift = 0
         self.last_tick_perf = time.perf_counter()
 
         if not vlc_available:
@@ -50,6 +80,7 @@ class VideoPlayerWidget(QWidget):
         # --- VLC Setup ---
         self.instance = vlc.Instance()
         self.media_player = self.instance.media_player_new()
+        self._configure_vlc_input_handling()
 
         # --- UI Elements ---
         self.video_frame = QFrame()
@@ -57,10 +88,17 @@ class VideoPlayerWidget(QWidget):
         self.video_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Handle resize events for proper video scaling
         self.video_frame.setMinimumSize(400, 300)
+        self.video_frame.installEventFilter(self)
+        self.video_frame.setFocusPolicy(Qt.StrongFocus)
+        self.installEventFilter(self)
 
         self.play_button = QPushButton()
         self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.play_button.setEnabled(False)
+
+        self.fullscreen_button = QPushButton()
+        self.fullscreen_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton))
+        self.fullscreen_button.setToolTip("Toggle fullscreen (F11 / Esc)")
 
         self.position_slider = QSlider(Qt.Horizontal)
         self.position_slider.setRange(0, 1000)
@@ -80,6 +118,7 @@ class VideoPlayerWidget(QWidget):
         control_layout = QHBoxLayout()
         control_layout.addWidget(self.play_button)
         control_layout.addWidget(self.position_slider)
+        control_layout.addWidget(self.fullscreen_button)
         volume_layout = QHBoxLayout()
         volume_layout.addWidget(QLabel("Volume:"))
         volume_layout.addWidget(self.volume_slider)
@@ -95,6 +134,7 @@ class VideoPlayerWidget(QWidget):
         self.position_slider.sliderMoved.connect(self._slider_scrubbed)
         self.position_slider.sliderReleased.connect(self._slider_released)
         self.volume_slider.valueChanged.connect(self.change_volume)
+        self.fullscreen_button.clicked.connect(self.toggle_fullscreen)
 
         # Connect internal signals for thread-safe VLC event handling
         self._vlc_paused_signal.connect(self._handle_vlc_paused)
@@ -115,6 +155,10 @@ class VideoPlayerWidget(QWidget):
         self.master_clock_timer = QTimer(self)
         self.master_clock_timer.setInterval(10)  # 10ms = 100Hz
         self.master_clock_timer.timeout.connect(self._on_master_tick)
+        self._single_click_timer = QTimer(self)
+        self._single_click_timer.setSingleShot(True)
+        self._single_click_timer.timeout.connect(self._on_video_single_click)
+        self.setFocusPolicy(Qt.StrongFocus)
 
 
     def _create_fallback_ui(self):
@@ -141,7 +185,6 @@ class VideoPlayerWidget(QWidget):
         media.parse()
         self.media_player.set_media(media)
 
-        # 保存文件路径供后续使用
         self._current_video_path = file_path
 
         # Tell VLC where to draw the video
@@ -163,26 +206,118 @@ class VideoPlayerWidget(QWidget):
         self._media_load_timer.start(500)
 
     def _attach_video_to_frame(self):
-        """将VLC视频输出绑定到video_frame窗口"""
+        """Attach VLC video output to video_frame."""
         if sys.platform.startswith('win'):
             self.media_player.set_hwnd(self.video_frame.winId())
         elif sys.platform.startswith('linux'):
             self.media_player.set_xwindow(self.video_frame.winId())
         elif sys.platform.startswith('darwin'):
             self.media_player.set_nsobject(self.video_frame.winId())
+        # Keep mouse/keyboard handling in Qt side, avoid VLC internal double-click fullscreen.
+        self._configure_vlc_input_handling()
+
+    def _configure_vlc_input_handling(self):
+        """Disable VLC native mouse/key handlers so Qt click gestures work reliably."""
+        if not vlc_available:
+            return
+        try:
+            self.media_player.video_set_mouse_input(False)
+        except Exception:
+            pass
+        try:
+            self.media_player.video_set_key_input(False)
+        except Exception:
+            pass
 
     def showEvent(self, event):
-        """当窗口重新显示时，重新绑定VLC视频输出"""
+        """Re-attach VLC output when the widget becomes visible again."""
         super().showEvent(event)
         if vlc_available and self._is_media_loaded:
-            # 重新绑定视频输出到video_frame
             self._attach_video_to_frame()
-            # 刷新当前帧
             if not self._is_playing:
                 current_pos = self.media_player.get_time()
-                # 播放一帧后暂停以刷新画面
                 self.media_player.play()
                 QTimer.singleShot(50, lambda: self._refresh_frame_after_show(current_pos))
+
+    def eventFilter(self, watched, event):
+        if watched is self.video_frame or watched is self:
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                # Delay single-click action so double-click can take precedence.
+                self._single_click_timer.start(self._single_click_delay_ms)
+                return True
+            if event.type() == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
+                if self._single_click_timer.isActive():
+                    self._single_click_timer.stop()
+                self.toggle_fullscreen()
+                return True
+        return super().eventFilter(watched, event)
+
+    @Slot()
+    def _on_video_single_click(self):
+        if self._is_media_loaded:
+            self.toggle_playback()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_F11:
+            self.toggle_fullscreen()
+            event.accept()
+            return
+        if event.key() == Qt.Key_Escape and self._is_fullscreen:
+            self.exit_fullscreen()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def toggle_fullscreen(self):
+        if self._is_fullscreen:
+            self.exit_fullscreen()
+        else:
+            self.enter_fullscreen()
+
+    def enter_fullscreen(self):
+        if self._is_fullscreen:
+            return
+
+        self.video_frame.setParent(None)
+
+        self._fullscreen_window = _FullScreenVideoWindow(self)
+        self._fullscreen_window.set_video_widget(self.video_frame)
+        self._fullscreen_window.closed.connect(self._restore_video_from_fullscreen)
+        self._fullscreen_window.showFullScreen()
+        self._fullscreen_window.activateWindow()
+        self._fullscreen_window.setFocus()
+
+        self._is_fullscreen = True
+        self.fullscreen_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarNormalButton))
+
+        if vlc_available and self._is_media_loaded:
+            self._attach_video_to_frame()
+
+    def exit_fullscreen(self):
+        if not self._is_fullscreen:
+            return
+        if self._fullscreen_window and self._fullscreen_window.isVisible():
+            self._fullscreen_window.close()
+        else:
+            self._restore_video_from_fullscreen()
+
+    @Slot()
+    def _restore_video_from_fullscreen(self):
+        if not self._is_fullscreen:
+            return
+
+        self.video_frame.setParent(self)
+        layout = self.layout()
+        if layout is not None:
+            layout.insertWidget(0, self.video_frame)
+
+        self._is_fullscreen = False
+        self.fullscreen_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton))
+        self._fullscreen_window = None
+        self.video_frame.setFocus()
+
+        if vlc_available and self._is_media_loaded:
+            self._attach_video_to_frame()
 
     def _check_media_loaded(self):
         """Checks if the media has been successfully parsed after a short delay."""
@@ -202,7 +337,7 @@ class VideoPlayerWidget(QWidget):
             self._on_vlc_error()
 
     def _refresh_frame_after_show(self, position_ms: int):
-        """在showEvent后刷新视频帧"""
+        """Refresh a frame after showEvent."""
         if vlc_available and self._is_media_loaded:
             self.media_player.pause()
             self.media_player.set_time(position_ms)
@@ -211,7 +346,6 @@ class VideoPlayerWidget(QWidget):
     @Slot(int)
     def set_playback_position(self, position_ms: int):
         if self._is_media_loaded:
-            # 限制跳转位置在有效范围内
             duration_ms = self.media_player.get_length()
             if duration_ms > 0:
                 position_ms = max(0, min(position_ms, duration_ms - 500))
@@ -223,8 +357,7 @@ class VideoPlayerWidget(QWidget):
                     self.playback_start_offset_ms = position_ms
                 self.last_vlc_time_ms = -1
                 self.vlc_read_counter = 0
-            # duration_ms <= 0 时不进行跳转，避免崩溃
-
+            # No seek when duration is invalid.
     def play_clicked(self):
         if not self._is_media_loaded: return
         # When the user clicks play, we do NOT want to auto-pause.
@@ -236,13 +369,11 @@ class VideoPlayerWidget(QWidget):
             self.media_player.pause()
             self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
             self._is_playing = False
-            self.playback_stopped.emit()  # 发射停止信号
+            self.playback_stopped.emit()
         else:
-            # 检查是否在结尾附近，如果是则重新加载视频
             duration_ms = self.media_player.get_length()
             current_time = self.media_player.get_time()
             if duration_ms > 0 and current_time >= duration_ms - 500:
-                # 重新加载视频到开头
                 if hasattr(self, '_current_video_path') and self._current_video_path:
                     media = self.instance.media_new(self._current_video_path)
                     self.media_player.set_media(media)
@@ -256,14 +387,13 @@ class VideoPlayerWidget(QWidget):
             self.media_player.play()
             self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
             self._is_playing = True
-            self.playback_started.emit()  # 发射开始信号
-
+            self.playback_started.emit()
     def toggle_playback(self):
-        """切换播放/暂停状态（用于外部调用，如空格键）"""
+        """Toggle play/pause."""
         self.play_clicked()
 
     def pause(self):
-        """暂停播放"""
+        """Pause playback."""
         if self._is_media_loaded and self.media_player.is_playing():
             self.master_clock_timer.stop()
             self.media_player.pause()
@@ -272,82 +402,37 @@ class VideoPlayerWidget(QWidget):
             self.playback_stopped.emit()
 
     def is_playing(self) -> bool:
-        """返回当前是否正在播放"""
+        """Return current playback state."""
         return self._is_playing
 
     def change_volume(self, volume: int):
         if vlc_available:
             self.media_player.audio_set_volume(volume)
 
-    # @Slot()
-    # def _on_master_tick(self):
-    #     """Master clock tick at 100Hz for smooth playback head updates."""
-    #     if not self._is_playing or not self._is_media_loaded:
-    #         return
-
-    #     # Use high-precision local clock to calculate elapsed time
-    #     elapsed_sec = time.perf_counter() - self.playback_start_time
-    #     self.current_time_ms = self.playback_start_offset_ms + int(elapsed_sec * 1000)
-
-    #     # Every 1000 ticks (10000ms = 10s), read VLC time for synchronization
-    #     self.vlc_read_counter += 1
-    #     if self.vlc_read_counter >= 20:
-    #         self.vlc_read_counter = 0
-            
-    #         if self.media_player.get_media():
-    #             vlc_time = self.media_player.get_time()
-    #             if vlc_time >= 0:
-    #                 # Only recalibrate if drift exceeds 600ms threshold
-    #                 drift = abs(vlc_time - self.current_time_ms)
-    #                 offset_drift = vlc_time - self.current_time_ms
-    #                 print(f"[DEBUG VLC] Master clock try resync with VLC time: {vlc_time}ms (offset_drift: {offset_drift}ms)")
-    #                 if drift > 600:
-    #                     self.playback_start_time = time.perf_counter()
-    #                     self.playback_start_offset_ms = vlc_time
-    #                     self.current_time_ms = vlc_time
-    #                     self.last_vlc_time_ms = vlc_time
-
     @Slot()
     def _on_master_tick(self):
-        """主时钟滴答，100Hz刷新"""
+        """Master clock tick at 100Hz for smooth playback."""
         if not self._is_playing or not self._is_media_loaded:
             return
+
         update_flag = False
-        # 1. 计算自上一帧以来的高精度物理增量
         now = time.perf_counter()
-        dt = (now - self.last_tick_perf) * 1000 # 毫秒
+        dt = (now - self.last_tick_perf) * 1000
         self.last_tick_perf = now
 
-        # 2. 获取 VLC 的原始时间戳
         vlc_time = self.media_player.get_time()
 
-        # 3. 只有当 VLC 时间真正更新时，才更新漂移量计算
-        # 避免在 VLC 时间戳“原地踏步”时产生错误的漂移估算
         if vlc_time != self.last_reported_vlc_time and vlc_time != -1:
-            # 计算当前的物理逻辑时钟与 VLC 真实进度的差距
-            # 这里的 current_time_ms 是上一帧预测的时间
             raw_drift = vlc_time - self.current_time_ms
-            
-            # 记录这次有效的 VLC 更新
             self.last_reported_vlc_time = vlc_time
-            
-            # 将瞬时漂移计入平滑追踪（平滑因子 0.1 表示用 10 帧左右完成追赶）
-            # 这能过滤掉 VLC 时间戳更新瞬间的抖动
             self.smooth_drift = raw_drift * 0.1
             update_flag = True
-            
         else:
-            # 在 VLC 时间戳没变期间，平滑漂移量逐渐衰减
-            # 这样即使没有 VLC 更新，时钟也在平滑地向目标靠拢
             self.smooth_drift *= 0.9
 
-        # 4. 更新当前播放位置
-        # 当前位置 = 上一位置 + 物理增量 + 追踪补正
-        # 补正量限制在 dt 的 20%，防止追赶太快导致视觉抖动
         correction = max(-dt * 0.2, min(dt * 0.2, self.smooth_drift))
         self.current_time_ms += (dt + correction)
 
-        # 5. 更新 UI 和输出
         self.position_slider.blockSignals(True)
         self.position_slider.setValue(int(self.current_time_ms))
         self.position_slider.blockSignals(False)
@@ -398,7 +483,7 @@ class VideoPlayerWidget(QWidget):
             self.position_slider.blockSignals(False)
 
     def _on_vlc_end_reached(self, event):
-        """播放结束时只暂停，不重新加载"""
+        """Handle end reached by pausing without reloading."""
         self._is_playing = False
         self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
 
@@ -551,7 +636,12 @@ class VideoPlayerWidget(QWidget):
 
     def __del__(self):
         """Clean up VLC resources when the widget is destroyed."""
+        if self._is_fullscreen:
+            self.exit_fullscreen()
         if vlc_available and hasattr(self, 'media_player'):
             if self.media_player.is_playing():
                 self.media_player.stop()
             # Release media and other VLC resources if needed
+
+
+

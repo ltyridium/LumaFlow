@@ -6,7 +6,7 @@ from PySide6.QtCore import QObject, Signal
 class SerialDeviceManager(QObject):
     """
     Manager for USB Serial RF Transmitter device.
-    Sends 22-byte packets using the same protocol as LumaFlow_player_v2.
+    Handles serial port lifecycle and raw byte transmission.
     """
     connection_changed = Signal(bool, str)  # (connected, message)
     frame_sent = Signal(int)  # frames_sent count
@@ -28,37 +28,44 @@ class SerialDeviceManager(QObject):
             self.serial_port = serial.Serial(port, baudrate=baud_rate, timeout=1)
             self.frames_sent = 0
             self.last_sent_frame_index = -1
-            self.connection_changed.emit(True, f"Connected to {port} @ {baud_rate}bps")
+            self.frame_sent.emit(0)
             return True
         except serial.SerialException as e:
             self.serial_port = None
             self.connection_changed.emit(False, f"Connection failed: {e}")
             return False
 
-    def disconnect(self):
+    def mark_connected(self, message):
+        """Emit a successful connection state after higher-level init succeeds."""
+        self.connection_changed.emit(True, message)
+
+    def disconnect(self, message="Disconnected", emit_signal=True):
         """Disconnect from the serial port."""
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
         self.serial_port = None
         self.frames_sent = 0
         self.last_sent_frame_index = -1
-        self.connection_changed.emit(False, "Disconnected")
+        self.frame_sent.emit(0)
+        if emit_signal:
+            self.connection_changed.emit(False, message)
 
     def is_connected(self):
         """Check if connected to a serial port."""
         return self.serial_port is not None and self.serial_port.is_open
 
-    def send_data(self, data_bytes):
+    def send_data(self, data_bytes, count_frame=True):
         """Send raw bytes to the serial port."""
         if self.is_connected():
             try:
                 self.serial_port.write(data_bytes)
-                self.frames_sent += 1
-                self.frame_sent.emit(self.frames_sent)
+                if count_frame:
+                    self.frames_sent += 1
+                    self.frame_sent.emit(self.frames_sent)
                 return True
             except serial.SerialException as e:
                 print(f"Serial send error: {e}")
-                self.disconnect()
+                self.disconnect(message=f"Disconnected: {e}")
                 return False
         return False
 

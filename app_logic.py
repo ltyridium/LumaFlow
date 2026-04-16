@@ -1,3 +1,5 @@
+import time
+
 from PySide6.QtCore import QObject, Signal, Slot, QThread
 import pandas as pd
 
@@ -7,9 +9,9 @@ from core.clipboard_manager import ClipboardManager
 from core.effects import EffectGenerator
 from core.audio_manager import AudioManager
 from core.serial_device_manager import SerialDeviceManager
-from core.keyboard_device_manager import KeyboardDeviceManager
 from core.device_output_worker import DeviceOutputWorker
 from core.color_calibration import color_calibration
+from core.serial_protocol import build_auth_frame, build_stream_frame, describe_auth_lic
 
 class AppLogic(QObject):
     # Signals to update the UI
@@ -29,9 +31,9 @@ class AppLogic(QObject):
     audio_progress = Signal(str, str, int)  # timeline_type, stage, percentage
     # Device output signals
     serial_connection_changed = Signal(bool, str)  # (connected, message)
-    keyboard_connection_changed = Signal(bool, str)  # (connected, message)
     serial_frame_sent = Signal(int)  # frames_sent count
-    keyboard_frame_sent = Signal(int)  # frames_sent count
+    serial_auth_status_changed = Signal(str)
+    serial_auth_lic_info_changed = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -46,16 +48,14 @@ class AppLogic(QObject):
 
         # Device managers
         self.serial_device = SerialDeviceManager()
-        self.keyboard_device = KeyboardDeviceManager()
+        self.serial_auth_lic = ""
 
         # Device output worker thread
         self.device_thread = QThread()
         self.device_worker = DeviceOutputWorker(
             self.serial_device,
-            self.keyboard_device,
             self.data_manager,
-            self.build_serial_packet,
-            self.get_rgb_from_frame_for_keyboard
+            self.build_serial_packet
         )
         self.device_worker.moveToThread(self.device_thread)
         self.device_thread.start()
@@ -68,8 +68,6 @@ class AppLogic(QObject):
         # Connect device manager signals
         self.serial_device.connection_changed.connect(self.serial_connection_changed.emit)
         self.serial_device.frame_sent.connect(self.serial_frame_sent.emit)
-        self.keyboard_device.connection_changed.connect(self.keyboard_connection_changed.emit)
-        self.keyboard_device.frame_sent.connect(self.keyboard_frame_sent.emit)
 
     def _execute_command(self, command):
         try:
@@ -392,13 +390,38 @@ class AppLogic(QObject):
 
     @Slot(str, int)
     def connect_serial(self, port, baud_rate):
-        """Connect to serial device."""
-        self.serial_device.connect(port, baud_rate)
+        """Connect to serial device and immediately send AUTH."""
+        if not self.serial_device.connect(port, baud_rate):
+            self.serial_auth_status_changed.emit("Not Sent")
+            return
+
+        try:
+            auth_frame = self.build_auth_packet()
+        except ValueError as exc:
+            self.serial_auth_status_changed.emit("Config Error")
+            self.serial_device.disconnect(
+                message=f"Connection failed: {exc}",
+                emit_signal=True
+            )
+            return
+
+        if not self.serial_device.send_data(auth_frame, count_frame=False):
+            self.serial_auth_status_changed.emit("Send Failed")
+            if self.serial_device.is_connected():
+                self.serial_device.disconnect(
+                    message="Connection failed: AUTH send failed",
+                    emit_signal=True
+                )
+            return
+
+        self.serial_auth_status_changed.emit("Sent")
+        self.serial_device.mark_connected(f"Connected to {port} @ {baud_rate}bps")
 
     @Slot()
     def disconnect_serial(self):
         """Disconnect from serial device."""
         self.serial_device.disconnect()
+        self.serial_auth_status_changed.emit("Not Sent")
 
     @Slot(int)
     def set_serial_offset(self, offset_ms):
@@ -406,39 +429,11 @@ class AppLogic(QObject):
         self.serial_device.set_offset(offset_ms)
 
     @Slot(str)
-    def set_keyboard_device_path(self, path):
-        """Set keyboard device HID path."""
-        self.keyboard_device.set_device_path(path)
-
-    @Slot(bool)
-    def set_keyboard_target_keyboard(self, enabled):
-        """Enable/disable sending to keyboard."""
-        self.keyboard_device.set_target_keyboard(enabled)
-
-    @Slot(bool)
-    def set_keyboard_target_lightstrip(self, enabled):
-        """Enable/disable sending to light strip."""
-        self.keyboard_device.set_target_lightstrip(enabled)
-
-    @Slot(int)
-    def set_keyboard_channel(self, channel):
-        """Set which channel's RGB to use (-1 for average)."""
-        self.keyboard_device.set_selected_channel(channel)
-
-    @Slot()
-    def connect_keyboard(self):
-        """Initialize keyboard device."""
-        self.keyboard_device.connect()
-
-    @Slot()
-    def disconnect_keyboard(self):
-        """Disconnect from keyboard device."""
-        self.keyboard_device.disconnect()
-
-    @Slot(int)
-    def set_keyboard_offset(self, offset_ms):
-        """Set keyboard device timing offset."""
-        self.keyboard_device.set_offset(offset_ms)
+    def set_serial_auth_lic(self, lic_text):
+        """Set the AUTH LIC string used to build AUTH packets."""
+        self.serial_auth_lic = lic_text.strip()
+        self.serial_auth_lic_info_changed.emit(describe_auth_lic(self.serial_auth_lic))
+        self.serial_auth_status_changed.emit("Not Sent")
 
     @Slot(float, float, float)
     def update_calibration(self, r, g, b):
@@ -455,52 +450,17 @@ class AppLogic(QObject):
         return color_calibration.get_gains()
 
     def build_serial_packet(self, frame):
-        """Build 22-byte serial packet from frame data."""
-        packet = bytearray()
-        packet.append(0xC0)  # SOF
-        for i in range(10):
-            func = int(frame[f'ch{i}_function'])
-            r = int(frame[f'ch{i}_red'])
-            g = int(frame[f'ch{i}_green'])
-            b = int(frame[f'ch{i}_blue'])
-            high_byte = (func << 4) | r
-            low_byte = (g << 4) | b
-            packet.append(high_byte)
-            packet.append(low_byte)
-        packet.append(0xC1)  # EOF
-        return bytes(packet)
+        """Build a STREAM (0xD8) TLV frame from timeline data."""
+        return build_stream_frame(frame)
 
-    def get_average_rgb_from_frame(self, frame):
-        """Calculate average RGB from all 10 channels (scaled to 0-255)."""
-        r_sum = g_sum = b_sum = 0
-        for i in range(10):
-            r_sum += int(frame[f'ch{i}_red'])
-            g_sum += int(frame[f'ch{i}_green'])
-            b_sum += int(frame[f'ch{i}_blue'])
-        # Scale from 4-bit (0-15) to 8-bit (0-255)
-        return (
-            int(r_sum / 10 * 255 / 15),
-            int(g_sum / 10 * 255 / 15),
-            int(b_sum / 10 * 255 / 15)
-        )
+    def build_auth_packet(self, host_time=None):
+        """Build an AUTH (0xE0) TLV frame from the current LIC string."""
+        auth_host_time = int(time.time()) if host_time is None else int(host_time)
+        return build_auth_frame(self.serial_auth_lic, auth_host_time)
 
-    def get_rgb_from_frame_for_keyboard(self, frame):
-        """Get RGB values for keyboard device based on selected channel."""
-        channel = self.keyboard_device.selected_channel
-        if channel == -1:
-            # Use average of all channels
-            return self.get_average_rgb_from_frame(frame)
-        else:
-            # Use specific channel (0-9)
-            r = int(frame[f'ch{channel}_red'])
-            g = int(frame[f'ch{channel}_green'])
-            b = int(frame[f'ch{channel}_blue'])
-            # Scale from 4-bit (0-15) to 8-bit (0-255)
-            return (
-                int(r * 255 / 15),
-                int(g * 255 / 15),
-                int(b * 255 / 15)
-            )
+    def get_serial_auth_lic_info(self):
+        """Get parsed information for the current AUTH LIC string."""
+        return describe_auth_lic(self.serial_auth_lic)
 
     @Slot(int, str)
     def on_playback_position_changed(self, position_ms, timeline_type='edit'):
@@ -514,7 +474,6 @@ class AppLogic(QObject):
     def reset_device_tracking(self):
         """Reset frame tracking for new playback session."""
         self.serial_device.reset_frame_tracking()
-        self.keyboard_device.reset_frame_tracking()
 
     def shutdown(self):
         """Cleanup threads properly"""
