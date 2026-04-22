@@ -22,6 +22,8 @@ from core.resource_paths import icon_path, resource_path
 
 
 DEFAULT_NEW_EDIT_DURATION_SEC = 9600.0
+AUTO_ROLL_THRESHOLD_RATIO = 0.85
+AUTO_ROLL_PAGE_RATIO = 0.75
 
 class MainWindow(QMainWindow):
     # Signals to be connected to the AppLogic controller
@@ -41,6 +43,7 @@ class MainWindow(QMainWindow):
     generate_breathing_effect_requested = Signal(dict)
     generate_rainbow_effect_requested = Signal(dict)
     generate_gradient_effect_requested = Signal(dict)
+    generate_intermediate_frames_requested = Signal(dict)
 
     def __init__(self, app_logic, parent=None):
         super().__init__(parent)
@@ -213,6 +216,7 @@ class MainWindow(QMainWindow):
         tool_bar.addAction(self.import_source_video_action)
         tool_bar.addAction(self.import_edit_video_action)
         tool_bar.addAction(self.sync_playback_action)
+        tool_bar.addAction(self.auto_roll_action)
 
         return tool_bar
 
@@ -246,7 +250,7 @@ class MainWindow(QMainWindow):
         self.dark_theme_action = QAction(tr("action.dark_theme"), self)
         self.light_theme_action = QAction(tr("action.light_theme"), self)
         self.calibration_action = QAction(tr("action.rgb_calibration"), self)
-        self.fit_view_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), tr("action.fit_to_view"), self)
+        self.fit_view_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), tr("action.fit_selection"), self)
         self.fit_view_action.setShortcut("F")
 
         self.add_marker_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay), tr("action.add_marker"), self)
@@ -286,6 +290,13 @@ class MainWindow(QMainWindow):
         )
         self.sync_playback_action.setCheckable(True)
         self.sync_playback_action.setChecked(True)
+        self.auto_roll_action = QAction(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowRight),
+            tr("action.auto_roll"),
+            self,
+        )
+        self.auto_roll_action.setCheckable(True)
+        self.auto_roll_action.setChecked(False)
 
         self.about_action = QAction(tr("action.about"), self)
         self.about_action.triggered.connect(self.on_about)
@@ -407,6 +418,7 @@ class MainWindow(QMainWindow):
         self.import_source_video_action.triggered.connect(self.on_import_source_video)
         self.import_edit_video_action.triggered.connect(self.on_import_edit_video)
         self.sync_playback_action.triggered.connect(self.on_toggle_sync_playback)
+        self.auto_roll_action.triggered.connect(self.on_toggle_auto_roll)
 
         # Audio settings action
         self.audio_settings_action.triggered.connect(self.on_open_audio_settings)
@@ -467,6 +479,7 @@ class MainWindow(QMainWindow):
         self.generate_breathing_effect_requested.connect(self.logic.generate_breathing_effect)
         self.generate_rainbow_effect_requested.connect(self.logic.generate_rainbow_effect)
         self.generate_gradient_effect_requested.connect(self.logic.generate_gradient_effect)
+        self.generate_intermediate_frames_requested.connect(self.logic.generate_intermediate_frames)
 
         # Connect signals from timeline widgets directly to the logic controller
         self.source_timeline.add_marker_requested.connect(self.logic.add_marker)
@@ -633,6 +646,33 @@ class MainWindow(QMainWindow):
             params['at_ms'] = start_ms
             self.generate_gradient_effect_requested.emit(params)
 
+    def on_generate_intermediate_frames(self):
+        start_ms, end_ms = self.edit_timeline.get_selected_region()
+        if abs(end_ms - start_ms) <= 1:
+            self.set_status_message(tr("status.generate_intermediate_requires_region"))
+            return
+
+        anchor_df = self.logic.data_manager.get_segment(start_ms, end_ms)
+        if len(anchor_df) < 2:
+            self.set_status_message(tr("status.generate_intermediate_requires_two_frames"))
+            return
+
+        params_config = [
+            {
+                'name': 'interval',
+                'label': tr('dialog.intermediate.interval'),
+                'type': 'float',
+                'default': 200.0,
+                'min': 1.0,
+            },
+        ]
+        dialog = EffectDialog(tr("action.generate_intermediate_frames"), params_config, self)
+        if dialog.exec():
+            params = dialog.get_params()
+            params['start_ms'] = start_ms
+            params['end_ms'] = end_ms
+            self.generate_intermediate_frames_requested.emit(params)
+
     def on_open_calibration(self):
         from ui.dialogs import CalibrationDialog
         current_gains = self.logic.get_current_calibration()
@@ -645,25 +685,27 @@ class MainWindow(QMainWindow):
         active_timeline = self.get_active_timeline()
         if not active_timeline: return
 
-        # 获取播放头位置和选区范围
-        playhead_time = active_timeline.get_playback_head_time()
         start, end = active_timeline.region_item.getRegion()
 
-        # 判断播放头是否在选区内
-        if start <= playhead_time <= end and abs(end - start) > 1:
-            # Fit 选区
+        if abs(end - start) > 1:
             padding = (end - start) * 0.05
             active_timeline.set_view_range_clamped(start - padding, end + padding)
         else:
-            # Fit 全局
-            self.should_auto_zoom = True
-            if active_timeline == self.source_timeline:
-                current_data = self.logic.source_data_manager.get_full_data()
-                self.source_timeline.set_data(current_data, auto_zoom=True)
-            else:
-                current_data = self.logic.data_manager.get_full_data()
-                self.edit_timeline.set_data(current_data, auto_zoom=True)
-            self.should_auto_zoom = False
+            self.set_status_message(tr("status.fit_selection_requires_region"))
+
+    def fit_active_timeline_to_all(self):
+        active_timeline = self.get_active_timeline()
+        if not active_timeline:
+            return
+
+        self.should_auto_zoom = True
+        if active_timeline == self.source_timeline:
+            current_data = self.logic.source_data_manager.get_full_data()
+            self.source_timeline.set_data(current_data, auto_zoom=True)
+        else:
+            current_data = self.logic.data_manager.get_full_data()
+            self.edit_timeline.set_data(current_data, auto_zoom=True)
+        self.should_auto_zoom = False
 
     def on_show_offset_dialog(self):
         active_timeline = self.get_active_timeline()
@@ -741,6 +783,12 @@ class MainWindow(QMainWindow):
         else:
             self.set_status_message(tr("status.sync_disabled"))
 
+    def on_toggle_auto_roll(self):
+        if self.auto_roll_action.isChecked():
+            self.set_status_message(tr("status.auto_roll_enabled"))
+        else:
+            self.set_status_message(tr("status.auto_roll_disabled"))
+
     def sync_source_video_to_timeline(self, time_ms: float):
         """Synchronize source video playback to timeline position"""
         if self.sync_playback_action.isChecked() and not self.syncing_source_video_to_timeline:
@@ -771,6 +819,7 @@ class MainWindow(QMainWindow):
                 self.source_timeline.playback_head.blockSignals(True)
                 self.source_timeline_group.set_playback_head_time(time_ms)
                 self.source_timeline.playback_head.blockSignals(False)
+                self._maybe_auto_roll_timeline(self.source_timeline_group, time_ms)
             except Exception as e:
                 self.set_status_message(tr("status.sync_source_timeline_error", error=str(e)))
             finally:
@@ -784,10 +833,33 @@ class MainWindow(QMainWindow):
                 self.edit_timeline.playback_head.blockSignals(True)
                 self.edit_timeline_group.set_playback_head_time(time_ms)
                 self.edit_timeline.playback_head.blockSignals(False)
+                self._maybe_auto_roll_timeline(self.edit_timeline_group, time_ms)
             except Exception as e:
                 self.set_status_message(tr("status.sync_edit_timeline_error", error=str(e)))
             finally:
                 self.syncing_timeline_to_edit_video = False
+
+    def _maybe_auto_roll_timeline(self, timeline_group, time_ms: float):
+        if not self.auto_roll_action.isChecked():
+            return
+
+        timeline = timeline_group.timeline
+        x_min, x_max = timeline.plot_item.viewRange()[0]
+        view_width = x_max - x_min
+        if view_width <= 0:
+            return
+
+        limit_ms = timeline._get_timeline_limit_ms()
+        if limit_ms is None or view_width >= limit_ms:
+            return
+
+        trigger_x = x_min + view_width * AUTO_ROLL_THRESHOLD_RATIO
+        if time_ms < trigger_x:
+            return
+
+        new_start = x_min + view_width * AUTO_ROLL_PAGE_RATIO
+        new_end = new_start + view_width
+        timeline.set_view_range_clamped(new_start, new_end)
 
     def on_source_timeline_playback_head_changed(self):
         """Handle when the source timeline playback head is manually moved (e.g. by dragging)"""
@@ -864,6 +936,7 @@ class MainWindow(QMainWindow):
         settings = QSettings("LumaFlow", "LumaFlow")
         settings.setValue("geometry", self.saveGeometry())
         settings.setValue("windowState", self.saveState())
+        settings.setValue("view/auto_roll", self.auto_roll_action.isChecked())
 
         # Shutdown app logic (audio manager and device worker)
         try:
@@ -899,10 +972,12 @@ class MainWindow(QMainWindow):
         settings = QSettings("LumaFlow", "LumaFlow")
         geometry = settings.value("geometry")
         window_state = settings.value("windowState")
+        auto_roll_enabled = settings.value("view/auto_roll", False, bool)
         if geometry:
             self.restoreGeometry(geometry)
         if window_state:
             self.restoreState(window_state)
+        self.auto_roll_action.setChecked(auto_roll_enabled)
 
     # --- Audio Control Handlers ---
     def _on_source_audio_visibility_changed(self, timeline_type: str, visible: bool):

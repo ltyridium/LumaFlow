@@ -34,6 +34,66 @@ class EffectGenerator:
         return pd.DataFrame(data)
 
     @staticmethod
+    def create_intermediate_fill_df(anchor_df, interval_ms, columns):
+        """Generate discrete forward-hold intermediate frames between anchors."""
+        if anchor_df.empty or interval_ms <= 0:
+            return pd.DataFrame(columns=list(columns))
+
+        anchor_df = (
+            anchor_df.copy()
+            .sort_values('frame_time_ms', kind='mergesort')
+            .drop_duplicates(subset=['frame_time_ms'], keep='first')
+            .reset_index(drop=True)
+        )
+
+        if len(anchor_df) < 2:
+            return anchor_df.loc[:, list(columns)].copy()
+
+        generated_rows = []
+        interval_ms = float(interval_ms)
+        epsilon = 1e-9
+
+        for index in range(len(anchor_df)):
+            current_row = anchor_df.iloc[index].copy()
+            generated_rows.append(current_row.to_dict())
+
+            if index == len(anchor_df) - 1:
+                continue
+
+            next_time = float(anchor_df.iloc[index + 1]['frame_time_ms'])
+            insert_time = float(current_row['frame_time_ms']) + interval_ms
+
+            while insert_time < next_time - epsilon:
+                new_row = current_row.copy()
+                new_row['frame_time_ms'] = float(insert_time)
+                if 'frame_id' in new_row:
+                    new_row['frame_id'] = 0
+                if 'frame_type' in new_row:
+                    new_row['frame_type'] = 'intermediate_fill'
+                if 'marker' in new_row:
+                    new_row['marker'] = ''
+                generated_rows.append(new_row.to_dict())
+                insert_time += interval_ms
+
+        result_df = pd.DataFrame(generated_rows)
+
+        for column in columns:
+            if column not in result_df.columns:
+                if column == 'marker':
+                    result_df[column] = ''
+                elif column == 'frame_type':
+                    result_df[column] = 'intermediate_fill'
+                else:
+                    result_df[column] = 0
+
+        return (
+            result_df.loc[:, list(columns)]
+            .sort_values('frame_time_ms', kind='mergesort')
+            .drop_duplicates(subset=['frame_time_ms'], keep='first')
+            .reset_index(drop=True)
+        )
+
+    @staticmethod
     def create_rainbow_df(duration_ms, interval_ms, speed, columns):
         """使用Numba优化的彩虹流光效果生成"""
         times = np.arange(0, duration_ms, interval_ms)

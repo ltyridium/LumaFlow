@@ -5,7 +5,7 @@ Centralized location for all app-related constants.
 
 APP_METADATA = {
     "name": "LumaFlow",
-    "version": "1.5.1",
+    "version": "1.5.2",
     "author": "Ltyridium",
     "github": "https://github.com/ltyridium/LumaFlow",
     "bilibili": "https://space.bilibili.com/38596041",

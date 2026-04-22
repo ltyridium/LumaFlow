@@ -75,6 +75,10 @@ class RenderWorker(QObject):
                 self.finished.emit({}, QRectF(), False)
                 return
 
+            # Preserve the representative frame time so merged blocks can
+            # continue to the next real keyframe instead of stopping at the bin edge.
+            df_visible['source_frame_time_ms'] = df_visible['frame_time_ms']
+
             # --- 3. 处理左侧的"颜色保持" ---
             first_frame_time = df_visible['frame_time_ms'].iloc[0]
             if first_frame_time < x_min:
@@ -119,6 +123,17 @@ class RenderWorker(QObject):
                         df_final.iloc[-1, df_final.columns.get_loc('width')] = x_max - last_agg_time
 
             # --- 5. 准备渲染数据 (此部分不变) ---
+            last_display_time = float(df_final['frame_time_ms'].iloc[-1])
+            last_source_time = float(
+                df_final.get('source_frame_time_ms', df_final['frame_time_ms']).iloc[-1]
+            )
+            df_final.iloc[-1, df_final.columns.get_loc('width')] = self._calculate_tail_width(
+                last_display_time,
+                last_source_time,
+                times,
+                x_max,
+            )
+
             n_frames_final = len(df_final)
             n_points = n_frames_final * num_channels
             
@@ -159,6 +174,13 @@ class RenderWorker(QObject):
         finally:
             self.is_running = False
 
+    def _calculate_tail_width(self, display_start_time, source_frame_time, full_times, view_end_time):
+        next_keyframe_index = full_times.searchsorted(source_frame_time, side='right')
+        if next_keyframe_index < len(full_times):
+            next_keyframe_time = float(full_times[next_keyframe_index])
+            return max(0.0, next_keyframe_time - float(display_start_time))
+        return max(0.0, float(view_end_time) - float(display_start_time))
+
     def _aggregate_data(self, df, num_bins, full_df):
         """
         数据聚合 V6.1 - 修正了所有返回路径，确保返回 (DataFrame, bool) 元组。
@@ -168,6 +190,9 @@ class RenderWorker(QObject):
             return pd.DataFrame(), False
         
         n_visible = len(df)
+        if 'source_frame_time_ms' not in df.columns:
+            df = df.copy()
+            df['source_frame_time_ms'] = df['frame_time_ms']
         
         # 1. 精细视图逻辑
         if num_bins >= n_visible:
@@ -201,6 +226,7 @@ class RenderWorker(QObject):
         df['time_bin'] = pd.cut(df['frame_time_ms'], bins=bins, labels=False, right=False, include_lowest=True).values
         
         if df['time_bin'].isna().any():
+            df.loc[df['frame_time_ms'] == max_time, 'time_bin'] = num_bins - 1
             df.dropna(subset=['time_bin'], inplace=True)
             df['time_bin'] = df['time_bin'].astype(int)
 
@@ -1284,8 +1310,13 @@ class TimelineWidget(pg.PlotWidget):
             rainbow_action.triggered.connect(self._trigger_rainbow)
             gradient_action = generate_menu.addAction(tr("action.generate_gradient"))
             gradient_action.triggered.connect(self._trigger_gradient)
+            intermediate_action = generate_menu.addAction(tr("action.generate_intermediate_frames"))
+            intermediate_action.triggered.connect(self._trigger_intermediate_frames)
 
         menu.addSeparator()
+
+        fit_all_action = menu.addAction(tr("action.fit_all"))
+        fit_all_action.triggered.connect(self._trigger_fit_all)
 
         # Marker action
         marker_action = menu.addAction(tr("action.add_marker"))
@@ -1327,6 +1358,16 @@ class TimelineWidget(pg.PlotWidget):
         main_window = self.window()
         if hasattr(main_window, 'on_generate_gradient'):
             main_window.on_generate_gradient()
+
+    def _trigger_intermediate_frames(self):
+        main_window = self.window()
+        if hasattr(main_window, 'on_generate_intermediate_frames'):
+            main_window.on_generate_intermediate_frames()
+
+    def _trigger_fit_all(self):
+        main_window = self.window()
+        if hasattr(main_window, 'fit_active_timeline_to_all'):
+            main_window.fit_active_timeline_to_all()
 
     def is_playing(self) -> bool:
         """Check if video associated with this timeline is playing."""

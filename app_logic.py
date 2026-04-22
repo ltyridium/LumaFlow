@@ -72,13 +72,19 @@ class AppLogic(QObject):
         self.serial_device.connection_changed.connect(self.serial_connection_changed.emit)
         self.serial_device.frame_sent.connect(self.serial_frame_sent.emit)
 
-    def _execute_command(self, command):
+    def _execute_command(self, command, success_message_key=None, failure_message_key=None):
         try:
             self.undo_manager.execute(command)
             self.timeline_data_changed.emit(self.data_manager.get_full_data())
-            self.status_message_changed.emit(tr("status.command_succeeded_generic"))
+            if success_message_key:
+                self.status_message_changed.emit(tr(success_message_key))
+            else:
+                self.status_message_changed.emit(tr("status.command_succeeded_generic"))
         except Exception as e:
-            self.status_message_changed.emit(tr("status.command_failed_generic", error=e))
+            if failure_message_key:
+                self.status_message_changed.emit(tr(failure_message_key, error=e))
+            else:
+                self.status_message_changed.emit(tr("status.command_failed_generic", error=e))
         finally:
             self.undo_stack_changed.emit(len(self.undo_manager.undo_stack) > 0)
             self.redo_stack_changed.emit(len(self.undo_manager.redo_stack) > 0)
@@ -287,6 +293,34 @@ class AppLogic(QObject):
             "Gradient Effect"
         )
         self._execute_command(command)
+
+    @Slot(dict)
+    def generate_intermediate_frames(self, params):
+        start_ms = params.get('start_ms', 0.0)
+        end_ms = params.get('end_ms', 0.0)
+        interval_ms = params.get('interval', 200.0)
+
+        anchor_df = self.data_manager.get_segment(start_ms, end_ms)
+        if len(anchor_df) < 2:
+            self.status_message_changed.emit(tr("status.generate_intermediate_requires_two_frames"))
+            return
+
+        effect_df = EffectGenerator.create_intermediate_fill_df(
+            anchor_df,
+            interval_ms,
+            self.data_manager.main_df.columns,
+        )
+        command = InsertEffectCommand(
+            self.data_manager,
+            float(anchor_df['frame_time_ms'].min()),
+            effect_df,
+            "Intermediate Frames",
+        )
+        self._execute_command(
+            command,
+            success_message_key="status.generate_intermediate_success",
+            failure_message_key="status.generate_intermediate_failed",
+        )
 
     @Slot(float)
     def new_edit(self, duration_sec):
