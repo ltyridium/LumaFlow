@@ -19,6 +19,7 @@ from core.i18n import tr
 
 # Local imports
 from core.color_calibration import color_calibration
+from core.timeline_bounds import clamp_visible_range
 from utils.performance import perf_monitor
 from ui.timeline_tools import ToolManager
 
@@ -731,27 +732,9 @@ class TimelineWidget(pg.PlotWidget):
             zoom_factor = 0.8 if delta > 0 else 1.25
             new_width = current_width * zoom_factor
 
-            # 获取音频数据的总时长用于ZOOM OUT钳位（而不是当前显示范围）
-            audio_duration = None
-            try:
-                main_window = self.window()
-                if hasattr(main_window, 'source_audio_track') and hasattr(main_window, 'edit_audio_track'):
-                    if self.timeline_type == 'source' and main_window.source_audio_track.isVisible():
-                        audio_data = main_window.source_audio_track.audio_viz_item.audio_data
-                        if audio_data is not None:
-                            audio_duration = audio_data.duration_ms
-                    elif self.timeline_type == 'edit' and main_window.edit_audio_track.isVisible():
-                        audio_data = main_window.edit_audio_track.audio_viz_item.audio_data
-                        if audio_data is not None:
-                            audio_duration = audio_data.duration_ms
-            except:
-                pass
-
             # Apply zoom limits
             # ZOOM OUT 钳位：不允许灯光轨道缩放范围超过音频数据的总时长
-            effective_max_zoom = self.max_zoom_range
-            if audio_duration is not None:
-                effective_max_zoom = min(self.max_zoom_range, audio_duration)
+            effective_max_zoom = self._get_effective_max_zoom_range()
 
             if new_width < self.min_zoom_range:
                 new_width = self.min_zoom_range
@@ -763,13 +746,13 @@ class TimelineWidget(pg.PlotWidget):
             ratio = (mouse_x - current_range[0]) / current_width if current_width > 0 else 0.5
             new_start = mouse_x - new_width * ratio
             new_end = new_start + new_width
-            self.plot_item.setXRange(new_start, new_end, padding=0)
+            self.set_view_range_clamped(new_start, new_end)
             event.accept()
         elif modifiers == Qt.ShiftModifier:
             # Shift+Wheel: Fast horizontal scroll (10x speed)
             scroll_amount = (delta / 120) * 1000  # 1000ms per scroll step
             current_range = self.plot_item.viewRange()[0]
-            self.plot_item.setXRange(current_range[0] - scroll_amount, current_range[1] - scroll_amount, padding=0)
+            self.set_view_range_clamped(current_range[0] - scroll_amount, current_range[1] - scroll_amount)
             event.accept()
         elif modifiers == Qt.AltModifier:
             # Per PRD 3.1: Alt+Wheel - Vertical Zoom (Audio Frequency)
@@ -780,7 +763,7 @@ class TimelineWidget(pg.PlotWidget):
             # Wheel: Normal horizontal scroll
             scroll_amount = (delta / 120) * 100  # 100ms per scroll step
             current_range = self.plot_item.viewRange()[0]
-            self.plot_item.setXRange(current_range[0] - scroll_amount, current_range[1] - scroll_amount, padding=0)
+            self.set_view_range_clamped(current_range[0] - scroll_amount, current_range[1] - scroll_amount)
             event.accept()
         else:
             super().wheelEvent(event)
@@ -798,7 +781,7 @@ class TimelineWidget(pg.PlotWidget):
         if auto_zoom and not df.empty:
             min_time = df['frame_time_ms'].min()
             max_time = df['frame_time_ms'].max()
-            self.plot_item.setXRange(min_time, max_time, padding=0.05)
+            self.set_view_range_clamped(min_time, max_time)
         perf_monitor.end_timing(f"TimelineWidget.set_data ({len(df)}帧)")
 
     def keyPressEvent(self, event):
@@ -989,7 +972,7 @@ class TimelineWidget(pg.PlotWidget):
             return
         min_t = self.current_data['frame_time_ms'].min()
         max_t = self.current_data['frame_time_ms'].max()
-        self.plot_item.setXRange(min_t, max_t, padding=0.05)
+        self.set_view_range_clamped(min_t, max_t)
 
     def _apply_clamped_zoom(self, zoom_factor: float):
         """应用带钳位的缩放，zoom_factor < 1 为放大，> 1 为缩小"""
@@ -997,26 +980,8 @@ class TimelineWidget(pg.PlotWidget):
         current_width = current_range[1] - current_range[0]
         new_width = current_width * zoom_factor
 
-        # 获取音频数据的总时长用于ZOOM OUT钳位
-        audio_duration = None
-        try:
-            main_window = self.window()
-            if hasattr(main_window, 'source_audio_track') and hasattr(main_window, 'edit_audio_track'):
-                if self.timeline_type == 'source' and main_window.source_audio_track.isVisible():
-                    audio_data = main_window.source_audio_track.audio_viz_item.audio_data
-                    if audio_data is not None:
-                        audio_duration = audio_data.duration_ms
-                elif self.timeline_type == 'edit' and main_window.edit_audio_track.isVisible():
-                    audio_data = main_window.edit_audio_track.audio_viz_item.audio_data
-                    if audio_data is not None:
-                        audio_duration = audio_data.duration_ms
-        except:
-            pass
-
         # Apply zoom limits
-        effective_max_zoom = self.max_zoom_range
-        if audio_duration is not None:
-            effective_max_zoom = min(self.max_zoom_range, audio_duration)
+        effective_max_zoom = self._get_effective_max_zoom_range()
 
         if new_width < self.min_zoom_range:
             new_width = self.min_zoom_range
@@ -1027,7 +992,7 @@ class TimelineWidget(pg.PlotWidget):
         center = (current_range[0] + current_range[1]) / 2
         new_start = center - new_width / 2
         new_end = center + new_width / 2
-        self.plot_item.setXRange(new_start, new_end, padding=0)
+        self.set_view_range_clamped(new_start, new_end)
 
     def _update_marker_text_visibility(self):
         if not self.marker_items: return
@@ -1376,6 +1341,62 @@ class TimelineWidget(pg.PlotWidget):
 
     # --- Tool Pattern Helper Methods ---
 
+    def _get_media_duration_ms(self) -> float | None:
+        try:
+            main_window = self.window()
+            if self.timeline_type == 'source':
+                duration_ms = main_window.source_preview_widget.get_media_duration()
+            else:
+                duration_ms = main_window.edit_preview_widget.get_media_duration()
+            if duration_ms and duration_ms > 0:
+                return float(duration_ms)
+        except Exception:
+            pass
+        return None
+
+    def _get_audio_duration_ms(self) -> float | None:
+        try:
+            main_window = self.window()
+            if self.timeline_type == 'source':
+                audio_data = main_window.source_audio_track.audio_viz_item.audio_data
+            else:
+                audio_data = main_window.edit_audio_track.audio_viz_item.audio_data
+            if audio_data is not None and audio_data.duration_ms > 0:
+                return float(audio_data.duration_ms)
+        except Exception:
+            pass
+        return None
+
+    def _get_timeline_limit_ms(self) -> float | None:
+        media_duration_ms = self._get_media_duration_ms()
+        if media_duration_ms is not None:
+            return media_duration_ms
+
+        audio_duration_ms = self._get_audio_duration_ms()
+        if audio_duration_ms is not None:
+            return audio_duration_ms
+
+        if not self.current_data.empty:
+            max_time = float(self.current_data['frame_time_ms'].max())
+            if max_time > 0:
+                return max_time
+
+        return None
+
+    def _get_effective_max_zoom_range(self) -> float:
+        limit_ms = self._get_timeline_limit_ms()
+        if limit_ms is None:
+            return self.max_zoom_range
+        return min(self.max_zoom_range, limit_ms)
+
+    def clamp_view_range(self, start_ms: float, end_ms: float) -> tuple[float, float]:
+        return clamp_visible_range(start_ms, end_ms, self._get_timeline_limit_ms())
+
+    def set_view_range_clamped(self, start_ms: float, end_ms: float) -> tuple[float, float]:
+        clamped_start, clamped_end = self.clamp_view_range(start_ms, end_ms)
+        self.plot_item.setXRange(clamped_start, clamped_end, padding=0)
+        return clamped_start, clamped_end
+
     def zoom_at_position(self, x_pos: float, factor: float):
         """Zoom centered on x_pos. factor < 1 = zoom in, > 1 = zoom out."""
         current_range = self.plot_item.viewRange()[0]
@@ -1385,30 +1406,29 @@ class TimelineWidget(pg.PlotWidget):
         # Apply zoom limits
         if new_width < self.min_zoom_range:
             new_width = self.min_zoom_range
-        elif new_width > self.max_zoom_range:
-            new_width = self.max_zoom_range
+        else:
+            new_width = min(new_width, self._get_effective_max_zoom_range())
 
         ratio = (x_pos - current_range[0]) / current_width if current_width > 0 else 0.5
         new_start = x_pos - new_width * ratio
         new_end = new_start + new_width
-        self.plot_item.setXRange(new_start, new_end, padding=0)
+        self.set_view_range_clamped(new_start, new_end)
 
     def scroll_horizontal(self, delta: float):
         """Scroll horizontally by delta pixels worth of time."""
         current_range = self.plot_item.viewRange()[0]
         current_width = current_range[1] - current_range[0]
         scroll_amount = (delta / 120) * current_width * 0.1
-        self.plot_item.setXRange(
+        self.set_view_range_clamped(
             current_range[0] - scroll_amount,
             current_range[1] - scroll_amount,
-            padding=0
         )
 
     def pan_view(self, delta_x: float):
         """Pan view by delta_x in time units."""
         # Fix flickering by setting range directly instead of translateBy
         current_range = self.plot_item.viewRange()[0]
-        self.plot_item.setXRange(current_range[0] - delta_x, current_range[1] - delta_x, padding=0)
+        self.set_view_range_clamped(current_range[0] - delta_x, current_range[1] - delta_x)
 
     def start_region_selection(self, time_ms: float):
         """Start a new region selection at time_ms."""

@@ -6,6 +6,7 @@ from ui.main_window import MainWindow
 from app_logic import AppLogic
 from PySide6.QtGui import QIcon
 from core.i18n import tr
+from core.resource_paths import icon_path
 
 def check_dependencies():
     """Check if required external dependencies (VLC, FFmpeg) are available."""
@@ -42,13 +43,18 @@ def check_dependencies():
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app_icon_path = icon_path()
+    app_icon = QIcon(str(app_icon_path)) if app_icon_path.exists() else QIcon()
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
 
     if not check_dependencies():
         sys.exit(1)
 
     logic = AppLogic()
     window = MainWindow(logic)
-    app.setWindowIcon(QIcon('resources/icons/icon.png'))
+    if not app_icon.isNull():
+        window.setWindowIcon(app_icon)
     # Connect signals from window to logic
     window.new_edit_requested.connect(logic.new_edit)
     window.open_requested.connect(logic.open_file)

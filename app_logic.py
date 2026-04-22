@@ -46,6 +46,8 @@ class AppLogic(QObject):
         self.current_file_path = None
         self.current_source_video_path = None
         self.current_edit_video_path = None
+        self.source_audio_duration_ms = None
+        self.edit_audio_duration_ms = None
 
         # Device managers
         self.serial_device = SerialDeviceManager()
@@ -368,12 +370,14 @@ class AppLogic(QObject):
         """Route processed audio to correct timeline"""
         if video_path == self.current_source_video_path:
             self.source_audio_processed.emit(audio_data)
+            self.source_audio_duration_ms = audio_data.duration_ms
             duration_sec = audio_data.duration_ms / 1000.0
             self.status_message_changed.emit(
                 tr("status.source_audio_loaded", sample_rate=audio_data.sample_rate, duration=duration_sec)
             )
         elif video_path == self.current_edit_video_path:
             self.edit_audio_processed.emit(audio_data)
+            self.edit_audio_duration_ms = audio_data.duration_ms
             duration_sec = audio_data.duration_ms / 1000.0
             self.status_message_changed.emit(
                 tr("status.edit_audio_loaded", sample_rate=audio_data.sample_rate, duration=duration_sec)

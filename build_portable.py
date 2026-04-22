@@ -1,149 +1,111 @@
 """
-LumaFlow 免安装压缩包构建脚本
-打包成 zip 格式，解压即用
+LumaFlow portable package build script.
+Builds a one-file executable and bundles it into a distributable zip archive.
 """
-import os
-import sys
+from __future__ import annotations
+
 import shutil
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
-# Import metadata for version info
-sys.path.insert(0, os.path.dirname(__file__))
 from core.metadata import APP_METADATA
 
+
+BASE_DIR = Path(__file__).resolve().parent
+BUILD_DIR = BASE_DIR / "build"
+DIST_DIR = BASE_DIR / "dist"
+SPEC_PATH = BASE_DIR / "LumaFlow.spec"
+README_PATH = DIST_DIR / "README.txt"
+EXE_PATH = DIST_DIR / "LumaFlow.exe"
+ZIP_PATH = BASE_DIR / f'LumaFlow_Portable_v{APP_METADATA["version"]}.zip'
+
+
 def clean_build():
-    """清理之前的构建文件"""
-    dirs_to_clean = ['build', 'dist']
-    for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
-            print(f"清理 {dir_name}...")
-            shutil.rmtree(dir_name)
+    """Remove previous build outputs."""
+    for path in (BUILD_DIR, DIST_DIR):
+        if path.exists():
+            print(f"Cleaning {path}...")
+            shutil.rmtree(path)
+
 
 def build_exe():
-    """使用 PyInstaller 构建可执行文件"""
-    print("开始构建可执行文件...")
-
+    """Build the executable via the project spec file."""
+    print("Building executable...")
     cmd = [
-        sys.executable, '-m', 'PyInstaller',
-        '--name=LumaFlow',
-        '--icon=resources/icons/icon.png' if os.path.exists('resources/icons/icon.png') else '',
-        '--windowed',
-        '--onefile',  # 修改为单文件输出
-        '--add-data=resources;resources',
-        '--hidden-import=PySide6.QtCore',
-        '--hidden-import=PySide6.QtGui',
-        '--hidden-import=PySide6.QtWidgets',
-        '--hidden-import=pyqtgraph',
-        '--hidden-import=numpy',
-        '--hidden-import=pandas',
-        '--hidden-import=numba',
-        '--hidden-import=scipy',
-        '--hidden-import=scipy.fft',
-        '--hidden-import=scipy.signal',
-        '--hidden-import=scipy.ndimage',
-        '--hidden-import=scipy.interpolate',
-        '--hidden-import=scipy._lib',
-        '--hidden-import=scipy.special',
-        '--hidden-import=scipy._cyutility',
-        '--hidden-import=librosa',
-        '--hidden-import=soundfile',
-        '--hidden-import=matplotlib',
-        '--hidden-import=matplotlib.pyplot',
-        '--hidden-import=matplotlib.cm',
-        '--hidden-import=matplotlib.colors',
-        '--hidden-import=serial',
-        '--hidden-import=vlc',
-        '--hidden-import=requests',
-        '--hidden-import=PIL',
-        '--exclude-module=matplotlib.tests',
-        '--exclude-module=numpy.tests',
-        '--exclude-module=pandas.tests',
-        '--exclude-module=tkinter',
-        '--exclude-module=IPython',
-        '--exclude-module=jupyter',
-        # '--strip',  # REMOVED - Corrupts .pyd files on Windows
-        '--noupx',
-        'main.py'
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        str(SPEC_PATH),
     ]
+    subprocess.run(cmd, check=True, cwd=BASE_DIR)
 
-    subprocess.run(cmd, check=True)
 
 def create_readme():
-    """创建使用说明"""
-    readme = f"""LumaFlow 免安装版
+    """Create the portable package README."""
+    readme = f"""LumaFlow Portable
 
-使用方法:
-1. 解压此压缩包到任意目录
-2. 双击 LumaFlow.exe 运行
+Usage:
+1. Extract this archive to any folder.
+2. Double-click LumaFlow.exe to run.
 
-系统要求:
-- Windows 10/11 64位
-- 需要安装 VLC Media Player (https://www.videolan.org) 并添加到系统 PATH
-- 需要安装 FFmpeg (https://ffmpeg.org/download.html) 并添加到系统 PATH
+System requirements:
+- Windows 10/11 64-bit
+- VLC Media Player installed and available on PATH
+- FFmpeg installed and available on PATH
 
-注意事项:
-- 首次运行可能需要几秒钟启动时间
-- 某些杀毒软件可能误报，请添加信任
-- 不要删除程序目录下的其他文件
+Notes:
+- First launch may take a few seconds.
+- Some antivirus tools may raise false positives for one-file bundles.
 
-版本: {APP_METADATA['version']}
-作者: {APP_METADATA['author']}
+Version: {APP_METADATA['version']}
+Author: {APP_METADATA['author']}
 """
-    # Create dist directory if it doesn't exist
-    os.makedirs('dist', exist_ok=True)
-    with open('dist/README.txt', 'w', encoding='utf-8') as f:
-        f.write(readme)
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
+    README_PATH.write_text(readme, encoding="utf-8")
+
 
 def create_zip():
-    """创建压缩包"""
-    print("创建压缩包...")
+    """Create the final portable archive."""
+    print("Creating zip archive...")
 
-    zip_name = f'LumaFlow_Portable_v{APP_METADATA["version"]}.zip'
+    with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as zipf:
+        if EXE_PATH.exists():
+            zipf.write(EXE_PATH, "LumaFlow.exe")
+        if README_PATH.exists():
+            zipf.write(README_PATH, "README.txt")
 
-    with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # Add the executable
-        exe_path = Path('dist/LumaFlow.exe')
-        if exe_path.exists():
-            zipf.write(exe_path, 'LumaFlow.exe')
+    print(f"Created archive: {ZIP_PATH.name}")
+    print(f"Size: {ZIP_PATH.stat().st_size / 1024 / 1024:.1f} MB")
 
-        # Add README
-        readme_path = Path('dist/README.txt')
-        if readme_path.exists():
-            zipf.write(readme_path, 'README.txt')
-
-    print(f"压缩包已创建: {zip_name}")
-    print(f"大小: {os.path.getsize(zip_name) / 1024 / 1024:.1f} MB")
 
 def main():
-    print("LumaFlow 免安装压缩包构建工具")
+    print("LumaFlow portable build tool")
     print("=" * 50)
 
-    # 检查 PyInstaller
     try:
-        subprocess.run([sys.executable, '-m', 'PyInstaller', '--version'], check=True, capture_output=True)
+        subprocess.run(
+            [sys.executable, "-m", "PyInstaller", "--version"],
+            check=True,
+            capture_output=True,
+            cwd=BASE_DIR,
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("错误: 未安装 PyInstaller")
-        print("请运行: pip install pyinstaller")
+        print("Error: PyInstaller is not installed.")
+        print("Please run: pip install pyinstaller")
         return 1
 
-    # 清理
     clean_build()
-
-    # 构建
     build_exe()
-
-    # 创建说明文件
     create_readme()
-
-    # 打包
     create_zip()
 
-    print("\n构建完成!")
-    print(f"分发文件: LumaFlow_Portable_v{APP_METADATA['version']}.zip")
-
+    print("\nBuild complete.")
+    print(f"Output file: {ZIP_PATH.name}")
     return 0
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     sys.exit(main())

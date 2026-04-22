@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QColorDialog, QDialogButtonBox, QGroupBox, QComboBox, QTextBrowser,
     QWidget, QSlider, QListWidget, QListWidgetItem
 )
-from PySide6.QtGui import QColor, QPixmap, QPainter, QPen, QBrush, QPainterPath
+from PySide6.QtGui import QColor, QPixmap, QPainter, QPen, QBrush, QPainterPath, QIcon
 from PySide6.QtCore import Qt, Signal
 import math
 import numpy as np
@@ -12,6 +12,7 @@ import platform
 import vlc
 from core.metadata import APP_METADATA
 from core.i18n import tr
+from core.resource_paths import icon_path
 
 class EffectDialog(QDialog):
     """A general-purpose dialog for configuring lighting effects."""
@@ -743,6 +744,9 @@ class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("dialog.about.title"))
+        app_icon_path = icon_path()
+        if app_icon_path.exists():
+            self.setWindowIcon(QIcon(str(app_icon_path)))
         self.setFixedSize(450, 380)
         self.init_ui()
 
@@ -752,8 +756,9 @@ class AboutDialog(QDialog):
         # 头部：图标和基本信息
         header_layout = QHBoxLayout()
         logo_label = QLabel()
-        logo_pixmap = QPixmap("resources/icons/icon.png").scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        logo_label.setPixmap(logo_pixmap)
+        logo_pixmap = QPixmap(str(icon_path()))
+        if not logo_pixmap.isNull():
+            logo_label.setPixmap(logo_pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         
         info_v_layout = QVBoxLayout()
         title_label = QLabel("LumaFlow")

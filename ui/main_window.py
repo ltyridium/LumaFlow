@@ -2,7 +2,7 @@ import sys
 import os
 import pandas as pd
 from PySide6.QtCore import Signal, Slot, Qt, QTimer, QSettings
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QFileDialog, QMessageBox, QInputDialog, QSplitter,
@@ -18,6 +18,10 @@ from .audio_settings_dialog import AudioSettingsDialog
 from .video_player_widget import VideoPlayerWidget
 from .device_output_dock import DeviceOutputWidget
 from core.i18n import get_language, set_language, tr
+from core.resource_paths import icon_path, resource_path
+
+
+DEFAULT_NEW_EDIT_DURATION_SEC = 9600.0
 
 class MainWindow(QMainWindow):
     # Signals to be connected to the AppLogic controller
@@ -43,6 +47,9 @@ class MainWindow(QMainWindow):
         self.logic = app_logic
         self.current_language = get_language()
         self.setWindowTitle(tr("app.title"))
+        app_icon_path = icon_path()
+        if app_icon_path.exists():
+            self.setWindowIcon(QIcon(str(app_icon_path)))
         self.setGeometry(100, 100, 1600, 900) # [FIXED] Corrected window height
 
         self.should_auto_zoom = True
@@ -502,17 +509,34 @@ class MainWindow(QMainWindow):
             self.save_requested.emit(file_path)
 
     def on_new_edit(self):
+        default_duration_sec = self._get_default_new_edit_duration_sec()
         duration_sec, ok = QInputDialog.getDouble(
             self,
             tr("main.new_edit_title"),
             tr("main.new_edit_label"),
-            9600,
+            default_duration_sec,
             1.0,
             10000.0,
             2,
         )
         if ok and duration_sec > 0:
             self.new_edit_requested.emit(duration_sec)
+
+    def _get_default_new_edit_duration_sec(self) -> float:
+        """Choose the best default duration for a new edit project."""
+        duration_candidates = (
+            self.edit_preview_widget.get_media_duration(),
+            self.logic.edit_audio_duration_ms,
+            self.source_preview_widget.get_media_duration(),
+            self.logic.source_audio_duration_ms,
+        )
+
+        for duration_ms in duration_candidates:
+            if duration_ms and duration_ms > 0:
+                duration_sec = duration_ms / 1000.0
+                return min(max(duration_sec, 1.0), 10000.0)
+
+        return DEFAULT_NEW_EDIT_DURATION_SEC
 
     def on_add_marker(self):
         active_timeline = self.get_active_timeline()
@@ -629,7 +653,7 @@ class MainWindow(QMainWindow):
         if start <= playhead_time <= end and abs(end - start) > 1:
             # Fit 选区
             padding = (end - start) * 0.05
-            active_timeline.plot_item.setXRange(start - padding, end + padding, padding=0)
+            active_timeline.set_view_range_clamped(start - padding, end + padding)
         else:
             # Fit 全局
             self.should_auto_zoom = True
@@ -828,10 +852,8 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def set_theme(self, theme_name):
         try:
-            # This makes path resolution more robust
-            base_path = os.path.dirname(os.path.abspath(__file__))
-            style_path = os.path.join(base_path, "..", "resources", "styles", f"{theme_name}.qss")
-            with open(style_path, "r") as f:
+            style_path = resource_path("styles", f"{theme_name}.qss")
+            with style_path.open("r", encoding="utf-8") as f:
                 style_sheet = f.read()
                 QApplication.instance().setStyleSheet(style_sheet)
         except FileNotFoundError:

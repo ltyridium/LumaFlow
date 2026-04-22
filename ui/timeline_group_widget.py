@@ -115,7 +115,8 @@ class TimelineGroupWidget(QWidget):
             x_min = center - light_width / 2
             x_max = center + light_width / 2
 
-        self.timeline.plot_item.setXRange(x_min, x_max, padding=0)
+        clamped_min, clamped_max = self.timeline.set_view_range_clamped(x_min, x_max)
+        self.audio_track.set_x_range(clamped_min, clamped_max)
         self._syncing_audio = False
 
     # --- Public API ---

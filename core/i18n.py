@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
+from core.resource_paths import resource_path
 
 
 APP_ORG = "LumaFlow"
@@ -12,7 +13,7 @@ APP_NAME = "LumaFlow"
 LANGUAGE_SETTING_KEY = "ui/language"
 DEFAULT_LANGUAGE = "zh-CN"
 SUPPORTED_LANGUAGES = ("zh-CN", "en-US")
-RESOURCE_DIR = Path(__file__).resolve().parent.parent / "resources" / "i18n"
+RESOURCE_DIR = resource_path("i18n")
 
 
 class _SafeFormatDict(dict):
