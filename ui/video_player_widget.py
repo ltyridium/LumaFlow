@@ -7,6 +7,7 @@ from urllib.parse import unquote
 from PySide6.QtCore import Qt, Signal, Slot, QTimer, QEvent
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QFrame, QStyle, QSizePolicy
 from core.i18n import tr
+from core.timecode import format_time_ms
 
 try:
     import vlc
@@ -56,12 +57,13 @@ class VideoPlayerWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._is_media_loaded = False
-        self._is_scrubbing = False
         self._is_playing = False
         self._auto_pause_on_play = False
         self._is_fullscreen = False
         self._fullscreen_window = None
         self._single_click_delay_ms = 220
+        self._current_video_path = None
+        self.total_duration_ms = 0
 
         # Master clock variables for smooth playback
         self.current_time_ms = 0
@@ -101,10 +103,15 @@ class VideoPlayerWidget(QWidget):
         self.fullscreen_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton))
         self.fullscreen_button.setToolTip(tr("video.fullscreen_tooltip"))
 
-        self.position_slider = QSlider(Qt.Horizontal)
-        self.position_slider.setRange(0, 1000)
-        self.position_slider.setEnabled(False)
-        self.position_slider.setToolTip(tr("video.position_tooltip"))
+        self.time_label = QLabel(self._build_time_label_text())
+        self.time_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.time_label.setMinimumWidth(190)
+        self.time_label.setStyleSheet("QLabel { font-family: Consolas, 'Courier New', monospace; }")
+
+        self.percentage_label = QLabel(self._build_percentage_label_text())
+        self.percentage_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.percentage_label.setMinimumWidth(70)
+        self.percentage_label.setStyleSheet("QLabel { font-family: Consolas, 'Courier New', monospace; }")
 
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
@@ -118,7 +125,8 @@ class VideoPlayerWidget(QWidget):
         # --- Layout ---
         control_layout = QHBoxLayout()
         control_layout.addWidget(self.play_button)
-        control_layout.addWidget(self.position_slider)
+        control_layout.addWidget(self.time_label)
+        control_layout.addWidget(self.percentage_label)
         control_layout.addWidget(self.fullscreen_button)
         volume_layout = QHBoxLayout()
         self.volume_label = QLabel(tr("video.volume"))
@@ -132,9 +140,6 @@ class VideoPlayerWidget(QWidget):
 
         # --- Connect Signals ---
         self.play_button.clicked.connect(self.play_clicked)
-        self.position_slider.sliderPressed.connect(self._slider_pressed)
-        self.position_slider.sliderMoved.connect(self._slider_scrubbed)
-        self.position_slider.sliderReleased.connect(self._slider_released)
         self.volume_slider.valueChanged.connect(self.change_volume)
         self.fullscreen_button.clicked.connect(self.toggle_fullscreen)
 
@@ -175,6 +180,14 @@ class VideoPlayerWidget(QWidget):
     def load_video(self, file_path: str):
         if not vlc_available:
             return
+
+        self._is_media_loaded = False
+        self._is_playing = False
+        self.current_time_ms = 0
+        self.total_duration_ms = 0
+        self.play_button.setEnabled(False)
+        self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self._update_position_widgets()
 
         # Release any existing media
         if self.media_player.get_media():
@@ -323,12 +336,7 @@ class VideoPlayerWidget(QWidget):
         duration_ms = self.media_player.get_length()
         if duration_ms > 0:
             print(f"[DEBUG VLC] Media loaded successfully. Duration: {duration_ms}ms")
-            self._is_media_loaded = True
-            self.position_slider.setRange(0, duration_ms)
-            self.play_button.setEnabled(True)
-            self.position_slider.setEnabled(True)
-            # Update play button icon to play state since video is loaded
-            self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+            self._apply_loaded_media_state(duration_ms)
             self.file_label.setText(
                 tr("video.loaded", name=unquote(os.path.basename(self.media_player.get_media().get_mrl())))
             )
@@ -343,22 +351,16 @@ class VideoPlayerWidget(QWidget):
             self.media_player.pause()
             self.media_player.set_time(position_ms)
             self._is_playing = False
+            self._set_current_time_ms(position_ms)
 
     @Slot(int)
     def set_playback_position(self, position_ms: int):
-        if self._is_media_loaded:
-            duration_ms = self.media_player.get_length()
-            if duration_ms > 0:
-                position_ms = max(0, min(position_ms, duration_ms - 500))
-                self.media_player.set_time(position_ms)
-                # Reset master clock state on seek
-                self.current_time_ms = position_ms
-                if self._is_playing:
-                    self.playback_start_time = time.perf_counter()
-                    self.playback_start_offset_ms = position_ms
-                self.last_vlc_time_ms = -1
-                self.vlc_read_counter = 0
-            # No seek when duration is invalid.
+        self._seek_to_position(position_ms, emit_manual_signal=False)
+
+    @Slot(int)
+    def seek_to_time(self, position_ms: int) -> int | None:
+        return self._seek_to_position(position_ms, emit_manual_signal=True)
+
     def play_clicked(self):
         if not self._is_media_loaded: return
         # When the user clicks play, we do NOT want to auto-pause.
@@ -401,6 +403,7 @@ class VideoPlayerWidget(QWidget):
             self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
             self._is_playing = False
             self.playback_stopped.emit()
+            self._update_position_widgets()
 
     def is_playing(self) -> bool:
         """Return current playback state."""
@@ -434,10 +437,9 @@ class VideoPlayerWidget(QWidget):
         correction = max(-dt * 0.2, min(dt * 0.2, self.smooth_drift))
         self.current_time_ms += (dt + correction)
 
-        self.position_slider.blockSignals(True)
-        self.position_slider.setValue(int(self.current_time_ms))
-        self.position_slider.blockSignals(False)
-        self.position_changed_during_playback.emit(int(self.current_time_ms))
+        current_position = int(self.current_time_ms)
+        self._update_position_widgets(current_position)
+        self.position_changed_during_playback.emit(current_position)
 
         if update_flag:
             print(f"[DEBUG VLC] Master clock updated: current_time_ms={self.current_time_ms:.2f}ms, "
@@ -451,6 +453,7 @@ class VideoPlayerWidget(QWidget):
             self.master_clock_timer.stop()
             self._is_playing = False
             self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+            self._set_current_time_ms(duration_ms)
             self.playback_stopped.emit()
             return
 
@@ -463,10 +466,7 @@ class VideoPlayerWidget(QWidget):
         duration_ms = self.media_player.get_length()
         if duration_ms > 0 and not self._is_media_loaded:
             print(f"[DEBUG VLC] Media parsed. Duration: {duration_ms}ms")
-            self._is_media_loaded = True
-            self.position_slider.setRange(0, duration_ms)
-            self.play_button.setEnabled(True)
-            self.position_slider.setEnabled(True)
+            self._apply_loaded_media_state(duration_ms)
             self.file_label.setText(
                 tr("video.loaded", name=unquote(os.path.basename(self.media_player.get_media().get_mrl())))
             )
@@ -478,24 +478,25 @@ class VideoPlayerWidget(QWidget):
         pass
 
     def _on_vlc_time_changed(self, event):
-        # Master clock timer handles position updates during playback
-        # This event is only used for scrubbing feedback
-        if self._is_scrubbing:
-            self.position_slider.blockSignals(True)
-            self.position_slider.setValue(event.u.new_time)
-            self.position_slider.blockSignals(False)
+        # Master clock timer handles position updates during playback.
+        # We keep this handler attached in case VLC reports a new time while paused.
+        if not self._is_playing and event.u.new_time >= 0:
+            self._update_position_widgets(event.u.new_time)
 
     def _on_vlc_end_reached(self, event):
         """Handle end reached by pausing without reloading."""
         self._is_playing = False
         self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self._set_current_time_ms(self.total_duration_ms)
 
     def _on_vlc_error(self, event=None):
         print("[ERROR VLC] An error was encountered.")
         self.file_label.setText(tr("video.playback_error"))
         self.play_button.setEnabled(False)
-        self.position_slider.setEnabled(False)
         self._is_media_loaded = False
+        self.total_duration_ms = 0
+        self.current_time_ms = 0
+        self._update_position_widgets()
         if hasattr(self, '_media_load_timer') and self._media_load_timer.isActive():
             self._media_load_timer.stop()
 
@@ -536,6 +537,7 @@ class VideoPlayerWidget(QWidget):
 
         self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
         self._is_playing = True
+        self._update_position_widgets()
 
     @Slot()
     def _handle_vlc_paused(self):
@@ -547,36 +549,7 @@ class VideoPlayerWidget(QWidget):
             self.current_time_ms = vlc_time
         self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self._is_playing = False
-
-    # --- Slider Event Handlers ---
-    def _slider_pressed(self):
-        if not self._is_media_loaded: return
-        self._is_scrubbing = True
-        # Pause the video but remember if it was playing for later
-        if self.media_player.is_playing():
-            self._was_playing_before_scrub = True
-            self.media_player.pause()
-        else:
-            self._was_playing_before_scrub = False
-
-    def _slider_scrubbed(self, position: int):
-        if not self._is_media_loaded: return
-        self.current_time_ms = position
-        self.set_playback_position(position)
-        self.position_changed_manually.emit(position)
-
-    def _slider_released(self):
-        self._is_scrubbing = False
-        # Resume playback if it was playing before scrubbing
-        if self._was_playing_before_scrub:
-            # Reinitialize master clock for resumed playback
-            self.playback_start_time = time.perf_counter()
-            self.playback_start_offset_ms = self.current_time_ms
-            self.last_vlc_time_ms = -1
-            self.vlc_read_counter = 0
-            self.master_clock_timer.start()
-            self.media_player.play()
-            self._is_playing = True
+        self._update_position_widgets()
 
     def resizeEvent(self, event):
         """Handle resize events to potentially adjust video display."""
@@ -588,13 +561,13 @@ class VideoPlayerWidget(QWidget):
     def get_media_duration(self) -> int:
         """Get the total duration of the loaded media in milliseconds."""
         if self._is_media_loaded:
-            return self.media_player.get_length()
+            return self.total_duration_ms
         return 0
 
     def get_current_position(self) -> int:
         """Get the current playback position in milliseconds."""
         if self._is_media_loaded:
-            return self.media_player.get_time()
+            return int(self.current_time_ms)
         return 0
 
     def get_video_dimensions(self) -> tuple:
@@ -612,10 +585,10 @@ class VideoPlayerWidget(QWidget):
     def stop(self):
         """Stop playback and reset player."""
         if vlc_available and self._is_media_loaded:
+            duration_ms = self.total_duration_ms
             self.master_clock_timer.stop()
             self.media_player.stop()
             self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
-            self.position_slider.setValue(0)
             # Reset master clock state
             self.current_time_ms = 0
             self.playback_start_time = 0
@@ -623,6 +596,7 @@ class VideoPlayerWidget(QWidget):
             self.last_vlc_time_ms = -1
             self.vlc_read_counter = 0
             self._is_playing = False
+            self._update_position_widgets(0, duration_ms)
 
     def set_playback_rate(self, rate: float):
         """Set the playback speed rate (1.0 is normal speed)."""
@@ -646,4 +620,67 @@ class VideoPlayerWidget(QWidget):
                 self.media_player.stop()
             # Release media and other VLC resources if needed
 
+    def _apply_loaded_media_state(self, duration_ms: int):
+        self._is_media_loaded = True
+        self.total_duration_ms = max(0, int(duration_ms))
+        self.current_time_ms = max(0, min(int(self.media_player.get_time()), self.total_duration_ms))
+        self.play_button.setEnabled(True)
+        self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self._update_position_widgets()
 
+    def _seek_to_position(self, position_ms: int, emit_manual_signal: bool) -> int | None:
+        if not self._is_media_loaded:
+            return None
+
+        duration_ms = self.total_duration_ms or self.media_player.get_length()
+        if duration_ms <= 0:
+            return None
+
+        safe_position = self._clamp_seek_position(position_ms, duration_ms)
+        self.media_player.set_time(safe_position)
+        self.current_time_ms = safe_position
+
+        # Reset master clock state on seek.
+        if self._is_playing:
+            self.playback_start_time = time.perf_counter()
+            self.playback_start_offset_ms = safe_position
+        self.last_vlc_time_ms = -1
+        self.vlc_read_counter = 0
+        self.last_reported_vlc_time = -1
+        self.smooth_drift = 0
+        self._update_position_widgets(safe_position, duration_ms)
+
+        if emit_manual_signal:
+            self.position_changed_manually.emit(safe_position)
+        return safe_position
+
+    def _clamp_seek_position(self, position_ms: int, duration_ms: int) -> int:
+        safe_duration = max(0, int(duration_ms))
+        safe_position = max(0, int(position_ms))
+        if safe_duration <= 0:
+            return safe_position
+        return max(0, min(safe_position, max(safe_duration - 500, 0)))
+
+    def _set_current_time_ms(self, position_ms: int | float):
+        self.current_time_ms = max(0, int(position_ms))
+        self._update_position_widgets()
+
+    def _update_position_widgets(self, position_ms: int | float | None = None, duration_ms: int | float | None = None):
+        current_ms = max(0, int(self.current_time_ms if position_ms is None else position_ms))
+        total_ms = max(0, int(self.total_duration_ms if duration_ms is None else duration_ms))
+
+        self.time_label.setText(self._build_time_label_text(current_ms, total_ms))
+        self.percentage_label.setText(self._build_percentage_label_text(current_ms, total_ms))
+
+    def _build_time_label_text(self, current_ms: int | float | None = None, total_ms: int | float | None = None) -> str:
+        current = self.current_time_ms if current_ms is None else current_ms
+        total = self.total_duration_ms if total_ms is None else total_ms
+        return f"{format_time_ms(current)} / {format_time_ms(total)}"
+
+    def _build_percentage_label_text(self, current_ms: int | float | None = None, total_ms: int | float | None = None) -> str:
+        current = max(0.0, float(self.current_time_ms if current_ms is None else current_ms))
+        total = max(0.0, float(self.total_duration_ms if total_ms is None else total_ms))
+        if total <= 0:
+            return "0.0%"
+        percentage = min(100.0, max(0.0, (current / total) * 100.0))
+        return f"{percentage:.1f}%"

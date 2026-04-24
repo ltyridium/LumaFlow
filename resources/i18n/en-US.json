@@ -58,6 +58,7 @@
   "action.specify_offset": "Specify Offset...",
   "action.offset_left": "Offset Left 100ms",
   "action.offset_right": "Offset Right 100ms",
+  "action.go_to_time": "Go to Time...",
   "action.import_source_video": "Import Source Video...",
   "action.import_edit_video": "Import Edit Video...",
   "action.sync_playback": "Sync Playback",
@@ -115,6 +116,8 @@
   "status.cut_not_available_source": "Cut is not available on the source timeline.",
   "status.paste_not_available_source": "Paste is not available on the source timeline.",
   "status.delete_not_available_source": "Delete is not available on the source timeline.",
+  "status.go_to_time_requires_video": "Load a video in the active preview first.",
+  "status.go_to_time_applied": "Jumped to {time}.",
 
   "timeline.source": "source",
   "timeline.edit": "edit",
@@ -194,6 +197,10 @@
   "timeline.edit_marker_title": "Edit Marker",
   "timeline.offset_dialog_title": "Time Offset",
   "timeline.offset_dialog_label": "Enter offset amount (ms):\nCurrent selection: {start:.1f} - {end:.1f}",
+  "dialog.go_to_time.title": "Go to Time",
+  "dialog.go_to_time.label": "Enter a timestamp (HH:MM:SS.mmm, MM:SS.mmm, or milliseconds):",
+  "dialog.go_to_time.invalid_title": "Invalid Timecode",
+  "dialog.go_to_time.invalid_message": "Enter a valid timestamp in HH:MM:SS.mmm, MM:SS.mmm, or milliseconds.",
 
   "dialog.effect.generate": "Generate",
   "dialog.effect.cancel": "Cancel",

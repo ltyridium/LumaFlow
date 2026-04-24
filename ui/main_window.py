@@ -19,6 +19,7 @@ from .video_player_widget import VideoPlayerWidget
 from .device_output_dock import DeviceOutputWidget
 from core.i18n import get_language, set_language, tr
 from core.resource_paths import icon_path, resource_path
+from core.timecode import format_time_ms, parse_timecode
 
 
 DEFAULT_NEW_EDIT_DURATION_SEC = 9600.0
@@ -272,6 +273,8 @@ class MainWindow(QMainWindow):
         self.offset_left_action.setShortcut("Ctrl+[")
         self.offset_right_action = QAction(tr("action.offset_right"), self)
         self.offset_right_action.setShortcut("Ctrl+]")
+        self.go_to_time_action = QAction(tr("action.go_to_time"), self)
+        self.go_to_time_action.setShortcut("Ctrl+G")
 
         self.import_source_video_action = QAction(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton),
@@ -370,6 +373,7 @@ class MainWindow(QMainWindow):
         offset_menu.addAction(self.offset_dialog_action)
         offset_menu.addAction(self.offset_left_action)
         offset_menu.addAction(self.offset_right_action)
+        timeline_menu.addAction(self.go_to_time_action)
 
         # Audio menu
         audio_menu = self.menuBar().addMenu(tr("menu.audio"))
@@ -413,6 +417,7 @@ class MainWindow(QMainWindow):
         self.offset_dialog_action.triggered.connect(self.on_show_offset_dialog)
         self.offset_left_action.triggered.connect(lambda: self.on_apply_offset(-100))
         self.offset_right_action.triggered.connect(lambda: self.on_apply_offset(100))
+        self.go_to_time_action.triggered.connect(self.on_go_to_time)
 
         # Video import and sync actions
         self.import_source_video_action.triggered.connect(self.on_import_source_video)
@@ -788,6 +793,38 @@ class MainWindow(QMainWindow):
             self.set_status_message(tr("status.auto_roll_enabled"))
         else:
             self.set_status_message(tr("status.auto_roll_disabled"))
+
+    def on_go_to_time(self):
+        preview_widget = self._get_preview_widget_for_timeline_action(default_to_edit=True)
+        if preview_widget is None or preview_widget.get_media_duration() <= 0:
+            self.set_status_message(tr("status.go_to_time_requires_video"))
+            return
+
+        current_position = preview_widget.get_current_position()
+        text, ok = QInputDialog.getText(
+            self,
+            tr("dialog.go_to_time.title"),
+            tr("dialog.go_to_time.label"),
+            text=format_time_ms(current_position),
+        )
+        if not ok:
+            return
+
+        try:
+            requested_time_ms = parse_timecode(text)
+        except ValueError:
+            QMessageBox.warning(
+                self,
+                tr("dialog.go_to_time.invalid_title"),
+                tr("dialog.go_to_time.invalid_message"),
+            )
+            return
+
+        actual_time_ms = preview_widget.seek_to_time(requested_time_ms)
+        if actual_time_ms is not None:
+            self.set_status_message(
+                tr("status.go_to_time_applied", time=format_time_ms(actual_time_ms))
+            )
 
     def sync_source_video_to_timeline(self, time_ms: float):
         """Synchronize source video playback to timeline position"""
@@ -1185,6 +1222,16 @@ class MainWindow(QMainWindow):
         from .dialogs import AboutDialog
         dialog = AboutDialog(self)
         dialog.exec()
+
+    def _is_source_timeline_shortcut_context(self) -> bool:
+        return self.source_timeline.hasFocus() or self.source_audio_track.hasFocus()
+
+    def _get_preview_widget_for_timeline_action(self, default_to_edit: bool = False):
+        if self._is_source_timeline_shortcut_context():
+            return self.source_preview_widget
+        if default_to_edit or self.edit_timeline.hasFocus() or self.edit_audio_track.hasFocus():
+            return self.edit_preview_widget
+        return None
 
     def _refresh_serial_ports(self):
         """Refresh the list of available serial ports."""
