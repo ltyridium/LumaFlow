@@ -19,6 +19,7 @@
   "menu.insert": "插入",
   "menu.generate": "生成",
   "menu.offset": "偏移",
+  "menu.auto_roll_mode": "自动滚动模式",
   "menu.language": "语言",
 
   "dock.source_monitor": "源灯光效果",
@@ -63,6 +64,8 @@
   "action.import_edit_video": "导入灯光效果编辑视频...",
   "action.sync_playback": "同步播放",
   "action.auto_roll": "自动滚动",
+  "action.auto_roll_mode_pagewise": "分页滚动",
+  "action.auto_roll_mode_follow_playhead": "跟随播放头",
   "action.audio_visualization_settings": "音频可视化设置...",
   "action.about": "关于",
 
@@ -100,6 +103,7 @@
   "status.sync_disabled": "已禁用视频播放同步",
   "status.auto_roll_enabled": "已启用自动滚动",
   "status.auto_roll_disabled": "已禁用自动滚动",
+  "status.auto_roll_mode_changed": "自动滚动模式已切换为 {mode}",
   "status.sync_source_video_error": "同步源视频失败：{error}",
   "status.sync_edit_video_error": "同步编辑视频失败：{error}",
   "status.sync_source_timeline_error": "同步源时间轴失败：{error}",

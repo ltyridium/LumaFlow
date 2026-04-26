@@ -19,6 +19,7 @@
   "menu.insert": "Insert",
   "menu.generate": "Generate",
   "menu.offset": "Offset",
+  "menu.auto_roll_mode": "Auto Roll Mode",
   "menu.language": "Language",
 
   "dock.source_monitor": "Source Monitor",
@@ -63,6 +64,8 @@
   "action.import_edit_video": "Import Edit Video...",
   "action.sync_playback": "Sync Playback",
   "action.auto_roll": "Auto Roll",
+  "action.auto_roll_mode_pagewise": "Pagewise",
+  "action.auto_roll_mode_follow_playhead": "Follow Playhead",
   "action.audio_visualization_settings": "Audio Visualization Settings...",
   "action.about": "About",
 
@@ -100,6 +103,7 @@
   "status.sync_disabled": "Video playback synchronization disabled",
   "status.auto_roll_enabled": "Auto Roll enabled",
   "status.auto_roll_disabled": "Auto Roll disabled",
+  "status.auto_roll_mode_changed": "Auto Roll mode changed to {mode}",
   "status.sync_source_video_error": "Error syncing source video: {error}",
   "status.sync_edit_video_error": "Error syncing edit video: {error}",
   "status.sync_source_timeline_error": "Error syncing source timeline: {error}",

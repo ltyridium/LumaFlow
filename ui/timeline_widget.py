@@ -21,7 +21,23 @@ from core.i18n import tr
 from core.color_calibration import color_calibration
 from core.timeline_bounds import clamp_visible_range
 from utils.performance import perf_monitor
+from ui.timeline_rendering import (
+    build_render_cache_key,
+    expand_render_range,
+    is_render_cache_compatible,
+    is_stale_render_result,
+    scaled_render_width_pixels,
+)
+from ui.timeline_theme import get_visual_theme_profile
 from ui.timeline_tools import ToolManager
+
+
+def _as_qcolor(value):
+    if isinstance(value, QColor):
+        return value
+    if isinstance(value, (tuple, list)):
+        return QColor(*value)
+    return QColor(str(value))
 
 class RenderWorker(QObject):
     """
@@ -29,15 +45,15 @@ class RenderWorker(QObject):
     """
     # --- MODIFIED: 为信号添加一个 bool 标志位 ---
     # 参数：(渲染数据字典, 边界矩形QRectF, 是否为原始数据模式)
-    finished = pyqtSignal(dict, QRectF, bool)
+    finished = pyqtSignal(dict, QRectF, bool, tuple, int)
 
     def __init__(self):
         super().__init__()
         self.current_data = pd.DataFrame()
         self.is_running = False
 
-    @pyqtSlot(pd.DataFrame, tuple, float, int)
-    def process_data(self, df, view_range, view_width_pixels, num_channels=10):
+    @pyqtSlot(pd.DataFrame, tuple, float, int, int)
+    def process_data(self, df, view_range, view_width_pixels, num_channels=10, generation=0):
         """
         接收数据并开始处理的核心槽函数 (V4 - 同时修正颜色保持和颜色延伸)。
         """
@@ -50,7 +66,7 @@ class RenderWorker(QObject):
             x_min, x_max = view_range
             
             if df.empty:
-                self.finished.emit({}, QRectF(), False)
+                self.finished.emit({}, QRectF(), False, view_range, generation)
                 return
 
             # --- 1. 精确查找渲染所需的数据范围 ---
@@ -72,7 +88,7 @@ class RenderWorker(QObject):
             df_visible = df.iloc[start_idx:end_idx].copy()
 
             if df_visible.empty:
-                self.finished.emit({}, QRectF(), False)
+                self.finished.emit({}, QRectF(), False, view_range, generation)
                 return
 
             # Preserve the representative frame time so merged blocks can
@@ -95,7 +111,7 @@ class RenderWorker(QObject):
                 df_final, is_raw_data = pd.DataFrame(), False
 
             if df_final.empty:
-                self.finished.emit({}, QRectF(), is_raw_data)
+                self.finished.emit({}, QRectF(), is_raw_data, view_range, generation)
                 return
                 
             # =================================================================
@@ -165,12 +181,12 @@ class RenderWorker(QObject):
                         (df_final['frame_time_ms'] + df_final['width']).max() - df_final['frame_time_ms'].min(), 10)
             
             # --- MODIFIED: 在发射信号时，传递 is_raw_data 标志 ---
-            self.finished.emit(render_data, brect, is_raw_data)
+            self.finished.emit(render_data, brect, is_raw_data, view_range, generation)
 
         except Exception as e:
             import traceback
             print(f"RenderWorker error: {e}\n{traceback.format_exc()}")
-            self.finished.emit({}, QRectF(), False)
+            self.finished.emit({}, QRectF(), False, view_range, generation)
         finally:
             self.is_running = False
 
@@ -345,8 +361,9 @@ class FastScatterItem(pg.GraphicsObject):
         super().__init__()
         self.data = None
         self.is_raw_data = False
-        self.pen = pg.mkPen(color=(80, 80, 80), width=0.5) # 更细的笔，在大视图下效果更好
         self._boundingRect = QRectF()
+        self.frame_pen = pg.mkPen(color=(0, 0, 0), width=1, style=Qt.DashDotDotLine)
+        self.function_pen = QPen(QColor(40, 40, 40), 1)
 
     def setData(self, data, boundingRect, is_raw_data=False):
         self.data = data
@@ -364,7 +381,6 @@ class FastScatterItem(pg.GraphicsObject):
 
         painter.save()
         try:
-            frame_pen = pg.mkPen(color=(0, 0, 0), width=1, style=Qt.DashDotDotLine)
             # 遍历所有要绘制的点 (每个点代表一个通道的一个矩形)
             for i in range(len(self.data['x'])):
                 # 直接使用 QColor 效率更高
@@ -382,7 +398,7 @@ class FastScatterItem(pg.GraphicsObject):
                         self._draw_vertical_lines(painter, rect, func_mode)
 
                 # 3. 再使用画笔单独绘制这个矩形的左边框
-                painter.setPen(frame_pen)
+                painter.setPen(self.frame_pen)
                 # 获取矩形的左上角和左下角坐标
                 p1 = rect.topLeft()
                 p2 = rect.bottomLeft()
@@ -398,7 +414,7 @@ class FastScatterItem(pg.GraphicsObject):
         if num_lines == 0 or rect.width() < 3:  # 太窄则跳过
             return
 
-        painter.setPen(QPen(QColor(40, 40, 40), 1))  # 深灰色, 1像素宽
+        painter.setPen(self.function_pen)  # 深灰色, 1像素宽
 
         # 在帧宽度内均匀分布线条
         for j in range(num_lines):
@@ -408,21 +424,51 @@ class FastScatterItem(pg.GraphicsObject):
     def boundingRect(self):
         return self._boundingRect
 
+    def apply_visual_theme(self, profile: dict[str, object]):
+        self.frame_pen = pg.mkPen(
+            color=_as_qcolor(profile["frame_separator"]),
+            width=1,
+            style=Qt.DashDotDotLine,
+        )
+        self.function_pen = QPen(_as_qcolor(profile["function_line"]), 1)
+        self.update()
+
 class IDXIndicatorsItem(pg.GraphicsObject):
     """
     用于在IDX通道显示播放头、选区和数据帧指示器的统一图形项。
     """
+    HORIZONTAL_PAD_MS = 1000.0
+
     def __init__(self):
         super().__init__()
         self.playback_head_pos = None
         self.region_start = None
         self.region_end = None
         self.frame_positions = None # 新增：存储数据帧位置
+        self._bounding_rect = QRectF(0.0, -1.5, 1.0, 1.0)
         
         self.playback_brush = pg.mkBrush(255, 0, 0)
         self.region_brush = pg.mkBrush(0, 0, 255, 150)
         self.frame_brush = pg.mkBrush(50, 50, 50) # 新增：用于数据帧的深灰色笔刷
         self.no_pen = pg.mkPen(None)
+
+    def setTimelineBounds(self, start_ms, end_ms):
+        if start_ms is None or end_ms is None:
+            new_rect = QRectF(0.0, -1.5, 1.0, 1.0)
+        else:
+            start = float(start_ms)
+            end = float(end_ms)
+            if not np.isfinite(start) or not np.isfinite(end) or end <= start:
+                new_rect = QRectF(0.0, -1.5, 1.0, 1.0)
+            else:
+                left = min(0.0, start) - self.HORIZONTAL_PAD_MS
+                right = end + self.HORIZONTAL_PAD_MS
+                new_rect = QRectF(left, -1.5, right - left, 1.0)
+
+        if new_rect != self._bounding_rect:
+            self.prepareGeometryChange()
+            self._bounding_rect = new_rect
+            self.update()
 
     def setPlaybackHead(self, pos):
         self.playback_head_pos = pos
@@ -506,8 +552,13 @@ class IDXIndicatorsItem(pg.GraphicsObject):
             painter.restore()
 
     def boundingRect(self):
-        # 返回一个在水平方向上足够大的矩形，覆盖约2.7小时的时间范围
-        return QRectF(-1e7, -1.5, 2e7, 1.0)
+        return self._bounding_rect
+
+    def apply_visual_theme(self, profile: dict[str, object]):
+        self.playback_brush = pg.mkBrush(_as_qcolor(profile["idx_playback"]))
+        self.region_brush = pg.mkBrush(_as_qcolor(profile["idx_region_rgba"]))
+        self.frame_brush = pg.mkBrush(_as_qcolor(profile["idx_frame"]))
+        self.update()
 
 class MarkerItem(pg.GraphicsObject):
     """
@@ -617,7 +668,7 @@ class TimelineWidget(pg.PlotWidget):
     # --- SIGNALS ---
     region_selected = Signal(float, float)
     playback_head_changed = Signal(float)
-    render_request = Signal(pd.DataFrame, tuple, float, int)
+    render_request = Signal(pd.DataFrame, tuple, float, int, int)
     offset_requested = Signal(float, float, float)
     # Signals for keyboard shortcuts
     insert_blackout_requested = Signal(float)
@@ -646,13 +697,13 @@ class TimelineWidget(pg.PlotWidget):
         
         # --- Basic Setup ---
         self.plot_item.hideButtons()
-        self.setBackground('w')
-        self.plot_item.setLabel('bottom', '时间')
+        # self.plot_item.setLabel('bottom', '时间')
         self.plot_item.showGrid(x=True, y=True, alpha=0.2)
         
         # --- Y-Axis Setup ---
         y_axis = self.plot_item.getAxis('left')
-        y_axis.setLabel('通道')
+        self.y_axis = y_axis
+        # y_axis.setLabel('通道')
         y_axis.setWidth(70)
         y_axis.setStyle(autoExpandTextSpace=False)
         new_ticks = [[(i, f"CH{i}") for i in range(10)]]
@@ -716,6 +767,14 @@ class TimelineWidget(pg.PlotWidget):
         self.setMouseTracking(True)
         self.last_mouse_pos = None
         self.current_data = pd.DataFrame()
+        self.buffered_x_range = None
+        self._buffered_render_key = None
+        self._render_request_generation = 0
+        self._inflight_render_generation = 0
+        self._latest_applied_generation = 0
+        self._render_in_flight = False
+        self._inflight_render_key = None
+        self._scheduled_render_request = None
         self.render_thread = QThread()
         self.render_worker = RenderWorker()
         self.render_worker.moveToThread(self.render_thread)
@@ -727,7 +786,7 @@ class TimelineWidget(pg.PlotWidget):
         self.plot_item.vb.sigRangeChanged.connect(self.on_viewport_changed)
         self.viewport_change_timer = QTimer()
         self.viewport_change_timer.setSingleShot(True)
-        self.viewport_change_timer.timeout.connect(self._request_render_in_background)
+        self.viewport_change_timer.timeout.connect(self._schedule_viewport_render_from_timer)
         self.drag_start_pos = None
         self.drag_offset = 0
         self.min_zoom_range = 100  # Minimum visible range in ms
@@ -735,6 +794,46 @@ class TimelineWidget(pg.PlotWidget):
 
         # Initialize Tool Manager for mouse interaction
         self.tool_manager = ToolManager(self)
+        self.apply_visual_theme("dark_theme")
+
+    def _build_offset_label_stylesheet(self, profile: dict[str, object]) -> str:
+        return (
+            "padding: 5px;"
+            "border-radius: 4px;"
+            "font-family: Arial;"
+            "font-size: 10pt;"
+            f"background-color: {profile['offset_background_rgba']};"
+            f"color: {profile['offset_text']};"
+            f"border: 1px solid {profile['axis_line']};"
+        )
+
+    def apply_visual_theme(self, theme_name: str):
+        profile = get_visual_theme_profile(theme_name)
+        self.setBackground(profile["timeline_background"])
+        self.plot_item.showGrid(x=True, y=True, alpha=float(profile["grid_alpha"]))
+
+        axis_pen = pg.mkPen(_as_qcolor(profile["axis_line"]))
+        text_pen = pg.mkPen(_as_qcolor(profile["axis_text"]))
+        self.plot_item.getAxis('bottom').setPen(axis_pen)
+        self.plot_item.getAxis('bottom').setTextPen(text_pen)
+        self.plot_item.getAxis('left').setPen(axis_pen)
+        self.plot_item.getAxis('left').setTextPen(text_pen)
+
+
+        self.zoom_label.setColor(_as_qcolor(profile["zoom_text"]))
+        self.offset_label.setStyleSheet(self._build_offset_label_stylesheet(profile))
+
+        self.region_item.setBrush(pg.mkBrush(_as_qcolor(profile["selection_fill_rgba"])))
+        self.ghost_region_item.setBrush(pg.mkBrush(_as_qcolor(profile["ghost_fill_rgba"])))
+
+        self.playback_head.setPen(pg.mkPen(_as_qcolor(profile["playback_head"]), width=2))
+        self.playback_head.setHoverPen(
+            pg.mkPen(_as_qcolor(profile["playback_head_hover"]), width=4)
+        )
+
+        self.scatter_item.apply_visual_theme(profile)
+        self.idx_indicators_item.apply_visual_theme(profile)
+        self.update_zoom_label()
 
     # [修改] mouseReleaseEvent 方法，委托给 ToolManager
     def mouseReleaseEvent(self, event):
@@ -797,17 +896,24 @@ class TimelineWidget(pg.PlotWidget):
     def set_data(self, df: pd.DataFrame, auto_zoom: bool = True):
         perf_monitor.start_timing(f"TimelineWidget.set_data ({len(df)}帧)")
         self.current_data = df.copy() if not df.empty else pd.DataFrame()
-        if df.empty: 
+        self._invalidate_render_buffer()
+        self._scheduled_render_request = None
+        self._render_request_generation += 1
+        self._sync_idx_indicator_bounds()
+        if df.empty:
             self.scatter_item.clear()
+            self.idx_indicators_item.setFramePositions(None)
             self.show_markers(df)
+            self.update_zoom_label()
             perf_monitor.end_timing(f"TimelineWidget.set_data ({len(df)}帧)", "- 空数据集")
             return
-        self._request_render_in_background()
         self.show_markers(df)
         if auto_zoom and not df.empty:
             min_time = df['frame_time_ms'].min()
             max_time = df['frame_time_ms'].max()
             self.set_view_range_clamped(min_time, max_time)
+        self.viewport_change_timer.stop()
+        self._schedule_render("set_data", force=True)
         perf_monitor.end_timing(f"TimelineWidget.set_data ({len(df)}帧)")
 
     def keyPressEvent(self, event):
@@ -1042,37 +1148,133 @@ class TimelineWidget(pg.PlotWidget):
             self.render_thread.quit()
             self.render_thread.wait(2000)
 
-    def on_viewport_changed(self):
-        if self.current_data.empty: return
-        # 所有的 UI 更新都由定时器统一触发，避免在信号回调中直接修改坐标
-        self.viewport_change_timer.start(10)
-
-    def _request_render_in_background(self):
-        if self.current_data.empty:
-            self.scatter_item.clear()
-            return
-
-        # 1. 更新缩放百分比标签和标记文字可见性
+    def on_viewport_changed(self, *args):
+        if "_range_change_signal_received" in self.__dict__:
+            self._range_change_signal_received = True
         self.update_zoom_label()
         self._update_marker_text_visibility()
+        self.scatter_item.update()
+        self.idx_indicators_item.update()
+        self.playback_head.update()
+        self.viewport().update()
+        if self.current_data.empty:
+            return
+        # 单槽合并：仅在未激活时启动，避免高频信号持续重启定时器导致渲染饥饿
+        if not self.viewport_change_timer.isActive():
+            self.viewport_change_timer.start(10)
 
-        # 2. 发起后台渲染请求
-        df_copy = self.current_data.copy()
-        view_range = self.plot_item.viewRange()[0]
-        view_width_pixels = self.plot_item.vb.width()
-        self.render_request.emit(df_copy, view_range, view_width_pixels, 10)
+    def _schedule_viewport_render_from_timer(self):
+        self._schedule_render("viewport_changed")
 
-    @pyqtSlot(dict, QRectF, bool)
-    def _on_render_finished(self, render_data, brect, is_raw_data):
+    def _invalidate_render_buffer(self):
+        self.buffered_x_range = None
+        self._buffered_render_key = None
+
+    def _build_render_request(self, reason: str, force: bool = False):
+        self._sync_idx_indicator_bounds()
+        view_range = tuple(float(value) for value in self.plot_item.viewRange()[0])
+        render_range = expand_render_range(view_range, self._get_timeline_limit_ms())
+        viewport_width_pixels = max(float(self.plot_item.vb.width()), 1.0)
+        render_width_pixels = scaled_render_width_pixels(
+            view_range,
+            render_range,
+            viewport_width_pixels,
+        )
+        try:
+            device_pixel_ratio = float(self.devicePixelRatioF())
+        except Exception:
+            device_pixel_ratio = 1.0
+        cache_key = build_render_cache_key(
+            render_range,
+            render_width_pixels,
+            viewport_width_pixels,
+            device_pixel_ratio,
+        )
+        return {
+            "reason": reason,
+            "force": force,
+            "view_range": view_range,
+            "render_range": render_range,
+            "render_width_pixels": render_width_pixels,
+            "cache_key": cache_key,
+        }
+
+    def _can_reuse_buffer(self, request: dict) -> bool:
+        return is_render_cache_compatible(
+            request["view_range"],
+            self.buffered_x_range,
+            self._buffered_render_key,
+            request["cache_key"],
+        )
+
+    def _schedule_render(self, reason: str, force: bool = False):
+        self._sync_idx_indicator_bounds()
+        if self.current_data.empty:
+            self.scatter_item.clear()
+            self.idx_indicators_item.setFramePositions(None)
+            self._invalidate_render_buffer()
+            return
+
+        request = self._build_render_request(reason, force=force)
+        if not force and self._can_reuse_buffer(request):
+            return
+
+        self._render_request_generation += 1
+        request["generation"] = self._render_request_generation
+        self._scheduled_render_request = request
+        self._dispatch_scheduled_render()
+
+    def _request_render_in_background(self, force: bool = False):
+        # 兼容旧调用点，统一转发到新调度入口
+        self._schedule_render("legacy", force=force)
+
+    def _dispatch_pending_render(self):
+        # 兼容旧调用点
+        self._dispatch_scheduled_render()
+
+    def _dispatch_scheduled_render(self):
+        if self._render_in_flight or self._scheduled_render_request is None or self.current_data.empty:
+            return
+
+        request = self._scheduled_render_request
+        self._scheduled_render_request = None
+        self._render_in_flight = True
+        self._inflight_render_generation = request["generation"]
+        self._inflight_render_key = request["cache_key"]
+        self.render_request.emit(
+            self.current_data.copy(),
+            request["render_range"],
+            float(request["render_width_pixels"]),
+            10,
+            request["generation"],
+        )
+
+    @pyqtSlot(dict, QRectF, bool, tuple, int)
+    def _on_render_finished(self, render_data, brect, is_raw_data, render_range, generation):
+        inflight_key = self._inflight_render_key
+        self._render_in_flight = False
+        self._inflight_render_generation = 0
+        self._inflight_render_key = None
+
+        if is_stale_render_result(generation, self._render_request_generation):
+            self._dispatch_scheduled_render()
+            return
+
         if not render_data or len(render_data['x']) == 0:
             self.scatter_item.clear()
             self.idx_indicators_item.setFramePositions(None)
+            self._invalidate_render_buffer()
         else:
             self.scatter_item.setData(render_data, brect, is_raw_data)
             if is_raw_data:
                 self.idx_indicators_item.setFramePositions(np.unique(render_data['x']))
             else:
                 self.idx_indicators_item.setFramePositions(None)
+            self.buffered_x_range = tuple(render_range)
+            self._buffered_render_key = inflight_key
+            self._latest_applied_generation = generation
+
+        self._dispatch_scheduled_render()
 
     def _update_idx_indicators(self):
         self.idx_indicators_item.setPlaybackHead(self.playback_head.value())
@@ -1209,7 +1411,11 @@ class TimelineWidget(pg.PlotWidget):
 
     def get_selected_region(self) -> tuple[float, float]: return self.region_item.getRegion()
     def get_playback_head_time(self) -> float: return self.playback_head.value()
-    def set_playback_head_time(self, time_ms: float): self.playback_head.setValue(time_ms)
+    def set_playback_head_time(self, time_ms: float):
+        self.playback_head.setValue(time_ms)
+        self._update_idx_indicators()
+        self.playback_head.update()
+        self.idx_indicators_item.update()
     def set_selected_region(self, start_ms: float, end_ms: float): self.region_item.setRegion([start_ms, end_ms])
 
     def snap_to_nearest_frame(self, time_ms: float, tolerance_ms: float = 50.0) -> float:
@@ -1424,6 +1630,14 @@ class TimelineWidget(pg.PlotWidget):
 
         return None
 
+    def _sync_idx_indicator_bounds(self):
+        limit_ms = self._get_timeline_limit_ms()
+        if limit_ms is None:
+            self.idx_indicators_item.setTimelineBounds(None, None)
+            return
+
+        self.idx_indicators_item.setTimelineBounds(0.0, limit_ms)
+
     def _get_effective_max_zoom_range(self) -> float:
         limit_ms = self._get_timeline_limit_ms()
         if limit_ms is None:
@@ -1435,7 +1649,18 @@ class TimelineWidget(pg.PlotWidget):
 
     def set_view_range_clamped(self, start_ms: float, end_ms: float) -> tuple[float, float]:
         clamped_start, clamped_end = self.clamp_view_range(start_ms, end_ms)
-        self.plot_item.setXRange(clamped_start, clamped_end, padding=0)
+        had_signal_flag = "_range_change_signal_received" in self.__dict__
+        previous_signal_flag = self.__dict__.get("_range_change_signal_received")
+        self._range_change_signal_received = False
+        try:
+            self.plot_item.setXRange(clamped_start, clamped_end, padding=0)
+            if not self._range_change_signal_received:
+                self.on_viewport_changed()
+        finally:
+            if had_signal_flag:
+                self._range_change_signal_received = previous_signal_flag
+            else:
+                delattr(self, "_range_change_signal_received")
         return clamped_start, clamped_end
 
     def zoom_at_position(self, x_pos: float, factor: float):

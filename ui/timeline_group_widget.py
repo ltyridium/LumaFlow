@@ -57,6 +57,7 @@ class TimelineGroupWidget(QWidget):
 
         # Default sizes
         self.splitter.setSizes([400, 80])
+        self.apply_visual_theme("dark_theme")
 
     def _connect_signals(self):
         # Forward timeline signals
@@ -149,6 +150,10 @@ class TimelineGroupWidget(QWidget):
     def set_colormap(self, colormap: str):
         """Set audio track colormap"""
         self.audio_track.set_colormap(colormap)
+
+    def apply_visual_theme(self, theme_name: str):
+        self.timeline.apply_visual_theme(theme_name)
+        self.audio_track.apply_visual_theme(theme_name)
 
     def get_playback_head_time(self) -> float:
         return self.timeline.get_playback_head_time()

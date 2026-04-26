@@ -25,6 +25,11 @@ from core.timecode import format_time_ms, parse_timecode
 DEFAULT_NEW_EDIT_DURATION_SEC = 9600.0
 AUTO_ROLL_THRESHOLD_RATIO = 0.85
 AUTO_ROLL_PAGE_RATIO = 0.75
+AUTO_ROLL_MODE_PAGEWISE = "pagewise"
+AUTO_ROLL_MODE_FOLLOW_PLAYHEAD = "follow_playhead"
+AUTO_ROLL_FOLLOW_ANCHOR_RATIO = 0.15
+AUTO_ROLL_FOLLOW_MIN_SHIFT_MS = 16.0
+AUTO_ROLL_FOLLOW_MIN_SHIFT_PX = 1.0
 
 class MainWindow(QMainWindow):
     # Signals to be connected to the AppLogic controller
@@ -300,6 +305,21 @@ class MainWindow(QMainWindow):
         )
         self.auto_roll_action.setCheckable(True)
         self.auto_roll_action.setChecked(False)
+        self.auto_roll_mode_group = QActionGroup(self)
+        self.auto_roll_mode_group.setExclusive(True)
+        self.auto_roll_pagewise_action = QAction(
+            tr("action.auto_roll_mode_pagewise"),
+            self,
+            checkable=True,
+        )
+        self.auto_roll_follow_playhead_action = QAction(
+            tr("action.auto_roll_mode_follow_playhead"),
+            self,
+            checkable=True,
+        )
+        self.auto_roll_mode_group.addAction(self.auto_roll_pagewise_action)
+        self.auto_roll_mode_group.addAction(self.auto_roll_follow_playhead_action)
+        self.auto_roll_pagewise_action.setChecked(True)
 
         self.about_action = QAction(tr("action.about"), self)
         self.about_action.triggered.connect(self.on_about)
@@ -374,6 +394,9 @@ class MainWindow(QMainWindow):
         offset_menu.addAction(self.offset_left_action)
         offset_menu.addAction(self.offset_right_action)
         timeline_menu.addAction(self.go_to_time_action)
+        auto_roll_mode_menu = timeline_menu.addMenu(tr("menu.auto_roll_mode"))
+        auto_roll_mode_menu.addAction(self.auto_roll_pagewise_action)
+        auto_roll_mode_menu.addAction(self.auto_roll_follow_playhead_action)
 
         # Audio menu
         audio_menu = self.menuBar().addMenu(tr("menu.audio"))
@@ -424,6 +447,12 @@ class MainWindow(QMainWindow):
         self.import_edit_video_action.triggered.connect(self.on_import_edit_video)
         self.sync_playback_action.triggered.connect(self.on_toggle_sync_playback)
         self.auto_roll_action.triggered.connect(self.on_toggle_auto_roll)
+        self.auto_roll_pagewise_action.triggered.connect(
+            lambda checked: checked and self.on_set_auto_roll_mode(AUTO_ROLL_MODE_PAGEWISE)
+        )
+        self.auto_roll_follow_playhead_action.triggered.connect(
+            lambda checked: checked and self.on_set_auto_roll_mode(AUTO_ROLL_MODE_FOLLOW_PLAYHEAD)
+        )
 
         # Audio settings action
         self.audio_settings_action.triggered.connect(self.on_open_audio_settings)
@@ -788,6 +817,41 @@ class MainWindow(QMainWindow):
         else:
             self.set_status_message(tr("status.sync_disabled"))
 
+    def _normalize_auto_roll_mode(self, mode: str | None) -> str:
+        if mode == AUTO_ROLL_MODE_FOLLOW_PLAYHEAD:
+            return AUTO_ROLL_MODE_FOLLOW_PLAYHEAD
+        return AUTO_ROLL_MODE_PAGEWISE
+
+    def _apply_auto_roll_mode(self, mode: str, announce: bool = False) -> str:
+        normalized_mode = self._normalize_auto_roll_mode(mode)
+        if hasattr(self, "auto_roll_pagewise_action"):
+            self.auto_roll_pagewise_action.setChecked(
+                normalized_mode == AUTO_ROLL_MODE_PAGEWISE
+            )
+        if hasattr(self, "auto_roll_follow_playhead_action"):
+            self.auto_roll_follow_playhead_action.setChecked(
+                normalized_mode == AUTO_ROLL_MODE_FOLLOW_PLAYHEAD
+            )
+
+        if announce:
+            mode_key = (
+                "action.auto_roll_mode_follow_playhead"
+                if normalized_mode == AUTO_ROLL_MODE_FOLLOW_PLAYHEAD
+                else "action.auto_roll_mode_pagewise"
+            )
+            self.set_status_message(
+                tr("status.auto_roll_mode_changed", mode=tr(mode_key))
+            )
+        return normalized_mode
+
+    def _get_auto_roll_mode(self) -> str:
+        if hasattr(self, "auto_roll_follow_playhead_action") and self.auto_roll_follow_playhead_action.isChecked():
+            return AUTO_ROLL_MODE_FOLLOW_PLAYHEAD
+        return AUTO_ROLL_MODE_PAGEWISE
+
+    def on_set_auto_roll_mode(self, mode: str):
+        self._apply_auto_roll_mode(mode, announce=True)
+
     def on_toggle_auto_roll(self):
         if self.auto_roll_action.isChecked():
             self.set_status_message(tr("status.auto_roll_enabled"))
@@ -890,6 +954,13 @@ class MainWindow(QMainWindow):
         if limit_ms is None or view_width >= limit_ms:
             return
 
+        if self._get_auto_roll_mode() == AUTO_ROLL_MODE_FOLLOW_PLAYHEAD:
+            new_start = time_ms - view_width * AUTO_ROLL_FOLLOW_ANCHOR_RATIO
+            if not self._should_update_follow_playhead_range(timeline, x_min, new_start, view_width):
+                return
+            timeline.set_view_range_clamped(new_start, new_start + view_width)
+            return
+
         trigger_x = x_min + view_width * AUTO_ROLL_THRESHOLD_RATIO
         if time_ms < trigger_x:
             return
@@ -897,6 +968,26 @@ class MainWindow(QMainWindow):
         new_start = x_min + view_width * AUTO_ROLL_PAGE_RATIO
         new_end = new_start + view_width
         timeline.set_view_range_clamped(new_start, new_end)
+
+    def _should_update_follow_playhead_range(self, timeline, current_start: float, target_start: float, view_width: float) -> bool:
+        shift_ms = abs(target_start - current_start)
+        if shift_ms <= 0:
+            return False
+
+        try:
+            viewport_width_px = float(timeline.plot_item.vb.width())
+        except Exception:
+            viewport_width_px = 0.0
+
+        if viewport_width_px <= 0:
+            return True
+
+        ms_per_pixel = view_width / viewport_width_px
+        min_shift_ms = max(
+            AUTO_ROLL_FOLLOW_MIN_SHIFT_MS,
+            ms_per_pixel * AUTO_ROLL_FOLLOW_MIN_SHIFT_PX,
+        )
+        return shift_ms >= min_shift_ms
 
     def on_source_timeline_playback_head_changed(self):
         """Handle when the source timeline playback head is manually moved (e.g. by dragging)"""
@@ -965,6 +1056,10 @@ class MainWindow(QMainWindow):
             with style_path.open("r", encoding="utf-8") as f:
                 style_sheet = f.read()
                 QApplication.instance().setStyleSheet(style_sheet)
+            if hasattr(self, "source_timeline_group"):
+                self.source_timeline_group.apply_visual_theme(theme_name)
+            if hasattr(self, "edit_timeline_group"):
+                self.edit_timeline_group.apply_visual_theme(theme_name)
         except FileNotFoundError:
             self.set_status_message(tr("status.stylesheet_not_found", name=theme_name))
 
@@ -974,6 +1069,7 @@ class MainWindow(QMainWindow):
         settings.setValue("geometry", self.saveGeometry())
         settings.setValue("windowState", self.saveState())
         settings.setValue("view/auto_roll", self.auto_roll_action.isChecked())
+        settings.setValue("view/auto_roll_mode", self._get_auto_roll_mode())
 
         # Shutdown app logic (audio manager and device worker)
         try:
@@ -1010,11 +1106,13 @@ class MainWindow(QMainWindow):
         geometry = settings.value("geometry")
         window_state = settings.value("windowState")
         auto_roll_enabled = settings.value("view/auto_roll", False, bool)
+        auto_roll_mode = settings.value("view/auto_roll_mode", AUTO_ROLL_MODE_PAGEWISE, str)
         if geometry:
             self.restoreGeometry(geometry)
         if window_state:
             self.restoreState(window_state)
         self.auto_roll_action.setChecked(auto_roll_enabled)
+        self._apply_auto_roll_mode(auto_roll_mode, announce=False)
 
     # --- Audio Control Handlers ---
     def _on_source_audio_visibility_changed(self, timeline_type: str, visible: bool):

@@ -5,10 +5,20 @@
 """
 import pyqtgraph as pg
 from PySide6.QtCore import Signal, Qt
+from PySide6.QtGui import QColor
 from typing import Optional
 import numpy as np
 
 from .audio_visualization_item import AudioVisualizationItem
+from .timeline_theme import get_visual_theme_profile
+
+
+def _as_qcolor(value):
+    if isinstance(value, QColor):
+        return value
+    if isinstance(value, (tuple, list)):
+        return QColor(*value)
+    return QColor(str(value))
 
 
 class TimeAxisItem(pg.AxisItem):
@@ -59,7 +69,6 @@ class AudioTrackWidget(pg.PlotWidget):
         # 基本设置
         self.plot_item = self.getPlotItem()
         self.plot_item.hideButtons()
-        self.setBackground('#1a1a1a')  # 深色背景更适合频谱图
         self.plot_item.showGrid(x=True, y=False, alpha=0.2)
 
         # Set fixed width for Y-axis to align with timeline widget
@@ -100,6 +109,7 @@ class AudioTrackWidget(pg.PlotWidget):
         # 设置 AudioManager（如果提供）
         if audio_manager is not None:
             self.set_audio_manager(audio_manager)
+        self.apply_visual_theme("dark_theme")
 
     def set_audio_manager(self, audio_manager):
         """设置 AudioManager 并连接信号"""
@@ -122,6 +132,21 @@ class AudioTrackWidget(pg.PlotWidget):
 
             # 连接信号：Worker 完成瓦片 -> 可视化项更新
             audio_manager.tile_ready.connect(self.audio_viz_item.on_tile_ready)
+
+    def apply_visual_theme(self, theme_name: str):
+        profile = get_visual_theme_profile(theme_name)
+        self.setBackground(profile["audio_background"])
+        self.plot_item.showGrid(x=True, y=False, alpha=float(profile["grid_alpha"]))
+
+        axis_pen = pg.mkPen(_as_qcolor(profile["axis_line"]))
+        text_pen = pg.mkPen(_as_qcolor(profile["axis_text"]))
+        self.freq_axis.setPen(axis_pen)
+        self.freq_axis.setTextPen(text_pen)
+        self.time_axis.setPen(axis_pen)
+        self.time_axis.setTextPen(text_pen)
+        self.freq_axis.setLabel('频率', units='Hz', color=str(profile["axis_text"]))
+
+        self.playback_head.setPen(pg.mkPen(_as_qcolor(profile["playback_head"]), width=2))
 
     def _on_range_changed(self):
         """视口变化时发射信号"""
