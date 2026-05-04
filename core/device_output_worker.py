@@ -37,5 +37,5 @@ class DeviceOutputWorker(QObject):
                 frame = dm.get_frame_at_ms(offset_time)
                 if frame is not None:
                     r, g, b = self.get_rgb(frame)
-                    if self.keyboard_device.send_frame(r, g, b):
+                    if self.keyboard_device.send_color(r, g, b):
                         self.keyboard_device.last_sent_frame_index = frame_index
