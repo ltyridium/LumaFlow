@@ -31,7 +31,7 @@ def build_exe():
         '--icon=resources/icons/icon.png' if os.path.exists('resources/icons/icon.png') else '',
         '--windowed',
         '--onefile',  # 修改为单文件输出
-        '--add-data=resources;resources',
+        '--add-data=resources:resources',
         '--hidden-import=PySide6.QtCore',
         '--hidden-import=PySide6.QtGui',
         '--hidden-import=PySide6.QtWidgets',
@@ -104,9 +104,14 @@ def create_zip():
 
     with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
         # Add the executable
-        exe_path = Path('dist/LumaFlow.exe')
-        if exe_path.exists():
-            zipf.write(exe_path, 'LumaFlow.exe')
+        if sys.platform == 'win32':
+            exe_path = Path('dist/LumaFlow.exe')
+            if exe_path.exists():
+                zipf.write(exe_path, 'LumaFlow.exe')
+        else:
+            exe_path = Path('dist/LumaFlow')
+            if exe_path.exists():
+                zipf.write(exe_path, 'LumaFlow')
 
         # Add README
         readme_path = Path('dist/README.txt')
