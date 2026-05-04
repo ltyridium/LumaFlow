@@ -30,7 +30,7 @@ class KeyboardDeviceManager(QObject):
         self.device_path = self.DEFAULT_DEVICE_PATH
         self.is_initialized = False
         self.frames_sent = 0
-
+        self.last_sent_frame_index = -1
         # Cached last color (dedup)
         self.last_rgb = None
 
@@ -127,6 +127,7 @@ class KeyboardDeviceManager(QObject):
         if self._post(proto):
             self.is_initialized = True
             self.frames_sent = 0
+            self.last_sent_frame_index = -1
             self.connection_changed.emit(True, "Device connected")
             return True
 
@@ -136,6 +137,7 @@ class KeyboardDeviceManager(QObject):
     def disconnect(self):
         self.is_initialized = False
         self.frames_sent = 0
+        self.last_sent_frame_index = -1
         self.connection_changed.emit(False, "Disconnected")
 
     def is_connected(self) -> bool:
@@ -169,6 +171,7 @@ class KeyboardDeviceManager(QObject):
 
     def reset_stats(self):
         self.frames_sent = 0
+        self.last_sent_frame_index = -1
         self.last_rgb = None
         self.frame_sent.emit(0)
 
