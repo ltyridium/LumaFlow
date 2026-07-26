@@ -1,0 +1,19 @@
+Source: lumaflow
+Section: python
+Priority: optional
+Rules-Requires-Root: no
+Build-Depends:
+ debhelper-compat (= 13), dh-virtualenv, python3
+Standards-Version: 4.7.2
+Maintainer: ltyridium <ltyridium@gmail.com>
+Homepage: https://github.com/ltyridium/LumaFlow
+
+Package: lumaflow
+Architecture: any
+Depends:
+ libvlc5, ffmpeg,bluez,
+ ${shlibs:Depends},
+ ${misc:Depends},
+ ${python:Depends}
+Recommends: vlc
+Description: Timeline-based LED lighting effect editor

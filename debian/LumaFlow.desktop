@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=LumaFlow
+Comment=LED Lighting Effect Editor
+Exec=env /opt/Ltyridium/LumaFlow/bin/lumaflow
+Icon=LumaFlow
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;
+

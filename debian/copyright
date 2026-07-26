@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Source: https://github.com/ltyridium/LumaFlow
+Upstream-Name: lumaflow
+Upstream-Contact: ltyridium <ltyridium@gmail.com>
+
+Files:
+ *
+Copyright:
+ 2026 ltyridium <ltyridium@gmail.com>
+License: GPL-3+
