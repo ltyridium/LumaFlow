@@ -41,7 +41,7 @@ def check_dependencies():
 
     return True
 
-if __name__ == "__main__":
+def main() -> int:
     app = QApplication(sys.argv)
     app_icon_path = icon_path()
     app_icon = QIcon(str(app_icon_path)) if app_icon_path.exists() else QIcon()
@@ -97,4 +97,7 @@ if __name__ == "__main__":
     
     window.show()
     
-    sys.exit(app.exec())
+    return app.exec()
+
+if __name__ == "__main__":
+    sys.exit(main())
